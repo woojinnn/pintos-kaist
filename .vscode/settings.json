@@ -1,0 +1,10 @@
+{
+    "files.associations": {
+        "list.h": "c",
+        "debug.h": "c",
+        "thread.h": "c",
+        "interrupt.h": "c",
+        "init.h": "c",
+        "tests.h": "c"
+    }
+}

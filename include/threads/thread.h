@@ -109,6 +109,12 @@ struct thread {
     unsigned magic;       /* Detects stack overflow. */
 };
 
+struct sleeping_thread {
+    struct thread *t;
+    int64_t wake_tick;
+    struct list_elem elem;
+};
+
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
@@ -132,6 +138,7 @@ const char *thread_name(void);
 
 void thread_exit(void) NO_RETURN;
 void thread_yield(void);
+void thread_sleep(int64_t tick);
 
 int thread_get_priority(void);
 void thread_set_priority(int);
