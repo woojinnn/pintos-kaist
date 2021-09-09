@@ -30,6 +30,7 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
+/* List of processes that called timer_sleep() */
 static struct list sleep_list;
 
 /* Idle thread. */
@@ -81,6 +82,15 @@ static tid_t allocate_tid(void);
 // Because the gdt will be setup after the thread_init, we should
 // setup temporal gdt first.
 static uint64_t gdt[3] = {0, 0x00af9a000000ffff, 0x00cf92000000ffff};
+
+/* funciton for comparing thread priority
+ * Will be used at ready_list */
+static bool priority_less(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED) {
+    const struct thread *a = list_entry(a_, struct thread, elem);
+    const struct thread *b = list_entry(b_, struct thread, elem);
+
+    return a->priority < b->priority;
+}
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -149,16 +159,20 @@ void thread_tick(void) {
     else
         kernel_ticks++;
 
-    /* Enforce preemption. */
+    /* Wake sleeping thread with past time */
+    struct list_elem *tmp;
+    struct sleeping_thread *tmp_thread;
     if (!list_empty(&sleep_list)) {
-        for (struct list_elem *tmp = list_front(&sleep_list); tmp != list_tail(&sleep_list); tmp = tmp->next) {
-            struct sleeping_thread *pop_thread = list_entry(tmp, struct sleeping_thread, elem);
-            if (pop_thread->wake_tick <= timer_ticks()) {
+        for (tmp = list_front(&sleep_list); tmp != list_tail(&sleep_list); tmp = list_next(tmp)) {
+            tmp_thread = list_entry(tmp, struct sleeping_thread, elem);
+            if (tmp_thread->wake_tick <= timer_ticks()) {
                 list_remove(tmp);
-                thread_unblock((pop_thread->t));
+                thread_unblock((tmp_thread->t));
             }
         }
     }
+
+    /* Enforce preemption. */
     if (++thread_ticks >= TIME_SLICE)
         intr_yield_on_return();
 }
@@ -245,7 +259,7 @@ void thread_unblock(struct thread *t) {
 
     old_level = intr_disable();
     ASSERT(t->status == THREAD_BLOCKED);
-    list_push_back(&ready_list, &t->elem);
+    list_insert_ordered(&ready_list, &t->elem, priority_less, NULL);
     t->status = THREAD_READY;
     intr_set_level(old_level);
 }
@@ -304,12 +318,15 @@ void thread_yield(void) {
     ASSERT(!intr_context());
 
     old_level = intr_disable();
-    if (curr != idle_thread)
-        list_push_back(&ready_list, &curr->elem);
+    if (curr != idle_thread) {
+        list_insert_ordered(&ready_list, &curr->elem, priority_less, NULL);
+    }
     do_schedule(THREAD_READY);
     intr_set_level(old_level);
 }
 
+/* Insert thread to sleep_list
+   so that we can avoid busy_waiting scheme */
 void thread_sleep(int64_t ticks) {
     struct thread *curr = thread_current();
     enum intr_level old_level;

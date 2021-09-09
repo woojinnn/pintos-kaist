@@ -120,6 +120,8 @@ struct sleeping_thread {
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
 
+static bool priority_less(const struct list_elem *, const struct list_elem *, void *);
+
 void thread_init(void);
 void thread_start(void);
 
