@@ -183,6 +183,30 @@ void thread_print_stats(void) {
            idle_ticks, kernel_ticks, user_ticks);
 }
 
+void donate_priority(void) {
+    struct thread *pado_thread = thread_current();
+    struct thread *to_change;
+    struct list d_list;
+    list_init(&d_list);
+    while (pado_thread->wait_on_lock != NULL) {
+        to_change = pado_thread->wait_on_lock->holder;
+        if(to_change->priority < thread_current()->priority)
+            to_change->priority = thread_current()->priority;
+        pado_thread = to_change;
+    }
+    
+    list_insert_ordered(&d_list, , priority_less, NULL);
+}
+
+void test_max_priority(void) {
+    if (!list_empty(&ready_list)) {
+        struct thread *max_thread = list_entry(list_begin(&ready_list), struct thread, elem);
+        if (max_thread->priority > thread_get_priority()) {
+            thread_yield();
+        }
+    }
+}
+
 /* Creates a new kernel thread named NAME with the given initial
    PRIORITY, which executes FUNCTION passing AUX as the argument,
    and adds it to the ready queue.  Returns the thread identifier
@@ -227,6 +251,7 @@ tid_t thread_create(const char *name, int priority,
 
     /* Add to run queue. */
     thread_unblock(t);
+    test_max_priority();
 
     return tid;
 }
@@ -347,6 +372,7 @@ void thread_sleep(int64_t ticks) {
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void thread_set_priority(int new_priority) {
     thread_current()->priority = new_priority;
+    test_max_priority();
 }
 
 /* Returns the current thread's priority. */
@@ -440,6 +466,9 @@ init_thread(struct thread *t, const char *name, int priority) {
     strlcpy(t->name, name, sizeof t->name);
     t->tf.rsp = (uint64_t)t + PGSIZE - sizeof(void *);
     t->priority = priority;
+    // t->init_priority = priority;
+    // t->wait_on_lock = NULL;
+    // list_init(&(t->donations));
     t->magic = THREAD_MAGIC;
 }
 

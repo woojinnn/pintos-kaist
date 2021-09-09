@@ -5,6 +5,7 @@
         "thread.h": "c",
         "interrupt.h": "c",
         "init.h": "c",
-        "tests.h": "c"
+        "tests.h": "c",
+        "synch.h": "c"
     }
 }
