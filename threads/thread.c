@@ -89,7 +89,7 @@ static bool priority_less(const struct list_elem *a_, const struct list_elem *b_
     const struct thread *a = list_entry(a_, struct thread, elem);
     const struct thread *b = list_entry(b_, struct thread, elem);
 
-    return a->priority < b->priority;
+    return a->priority > b->priority;
 }
 
 /* Initializes the threading system by transforming the code
@@ -163,7 +163,7 @@ void thread_tick(void) {
     struct list_elem *tmp;
     struct sleeping_thread *tmp_thread;
     if (!list_empty(&sleep_list)) {
-        for (tmp = list_front(&sleep_list); tmp != list_tail(&sleep_list); tmp = list_next(tmp)) {
+        for (tmp = list_begin(&sleep_list); tmp != list_end(&sleep_list); tmp = list_next(tmp)) {
             tmp_thread = list_entry(tmp, struct sleeping_thread, elem);
             if (tmp_thread->wake_tick <= timer_ticks()) {
                 list_remove(tmp);
