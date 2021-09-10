@@ -181,7 +181,7 @@ void lock_acquire(struct lock *lock) {
     ASSERT(!intr_context());
     ASSERT(!lock_held_by_current_thread(lock));
 
-    if(lock->holder != NULL) {
+    if (lock->holder != NULL) {
         thread_current()->wait_on_lock = lock;
         donate_priority();
     }
