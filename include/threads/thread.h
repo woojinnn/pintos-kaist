@@ -125,7 +125,8 @@ struct sleeping_thread {
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
 
-static bool priority_less(const struct list_elem *, const struct list_elem *, void *);
+bool priority_less(const struct list_elem *, const struct list_elem *, void *);
+bool d_priority_less(const struct list_elem *, const struct list_elem *, void *);
 
 void thread_init(void);
 void thread_start(void);
@@ -133,8 +134,16 @@ void thread_start(void);
 void thread_tick(void);
 void thread_print_stats(void);
 
+void build_donations(void);
+void percolate_up(void);
+void sort_donation_list(void);
+void donate_priority(void);
+
+void remove_with_lock(struct lock *lock);
+void refresh_priority(void);
+
 typedef void thread_func(void *aux);
-void test_max_priority(void);
+void execute_max_priority(void);
 tid_t thread_create(const char *name, int priority, thread_func *, void *);
 
 void thread_block(void);

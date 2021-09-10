@@ -85,9 +85,16 @@ static uint64_t gdt[3] = {0, 0x00af9a000000ffff, 0x00cf92000000ffff};
 
 /* funciton for comparing thread priority
  * Will be used at ready_list */
-static bool priority_less(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED) {
+bool priority_less(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED) {
     const struct thread *a = list_entry(a_, struct thread, elem);
     const struct thread *b = list_entry(b_, struct thread, elem);
+
+    return a->priority > b->priority;
+}
+
+bool d_priority_less(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED) {
+    const struct thread *a = list_entry(a_, struct thread, donation_elem);
+    const struct thread *b = list_entry(b_, struct thread, donation_elem);
 
     return a->priority > b->priority;
 }
@@ -183,28 +190,75 @@ void thread_print_stats(void) {
            idle_ticks, kernel_ticks, user_ticks);
 }
 
-void donate_priority(void) {
-    struct thread *pado_thread = thread_current();
-    struct thread *to_change;
-    struct list d_list;
-    list_init(&d_list);
-    while (pado_thread->wait_on_lock != NULL) {
-        to_change = pado_thread->wait_on_lock->holder;
-        if(to_change->priority < thread_current()->priority)
-            to_change->priority = thread_current()->priority;
-        pado_thread = to_change;
+void build_donations(void) {
+    struct thread *receiver = thread_current()->wait_on_lock->holder;
+    for (struct list_elem *tmp = list_begin(&(receiver->donations)); tmp != list_end(&(receiver->donations)); tmp = list_next(tmp)) {
+        struct thread *tmp_thread = list_entry(tmp, struct thread, donation_elem);
+        if (tmp_thread->wait_on_lock == thread_current()->wait_on_lock && tmp_thread->priority < thread_current()->priority) {
+            list_remove(tmp);
+            list_insert_ordered(&(receiver->donations), &(thread_current()->donation_elem), d_priority_less, NULL);
+            return;
+        }
     }
-    
-    list_insert_ordered(&d_list, , priority_less, NULL);
+    list_insert_ordered(&(receiver->donations), &(thread_current()->donation_elem), d_priority_less, NULL);
 }
 
-void test_max_priority(void) {
+void percolate_up(void) {
+    struct thread *receiver = thread_current()->wait_on_lock->holder;
+    while (receiver->priority < thread_current()->priority) {
+        receiver->priority = thread_current()->priority;
+        if (receiver->wait_on_lock == NULL) {
+            break;
+        }
+        receiver = receiver->wait_on_lock->holder;
+    }
+}
+
+void sort_donation_list(void) {
+    struct thread *root = thread_current();
+    while (root->wait_on_lock != NULL) {
+        root = root->wait_on_lock->holder;
+    }
+    list_sort(&(root->donations), d_priority_less, NULL);
+}
+
+void donate_priority(void) {
+    build_donations();
+    percolate_up();
+    sort_donation_list();
+}
+
+void execute_max_priority(void) {
     if (!list_empty(&ready_list)) {
         struct thread *max_thread = list_entry(list_begin(&ready_list), struct thread, elem);
         if (max_thread->priority > thread_get_priority()) {
             thread_yield();
         }
     }
+}
+
+void remove_with_lock(struct lock *lock) {
+    struct thread *current = thread_current();
+    for (struct list_elem *tmp = list_begin(&(current->donations)); tmp != list_end(&(current->donations)); tmp = list_next(tmp)) {
+        struct thread *candidate = list_entry(tmp, struct thread, donation_elem);
+        if (candidate->wait_on_lock == lock) {
+            candidate->wait_on_lock = NULL;
+            list_remove(tmp);
+            break;
+        }
+    }
+}
+
+void refresh_priority(void) {
+    struct thread *current = thread_current();
+    if (list_empty(&(current->donations))) {
+        current->priority = current->init_priority;
+        return;
+    }
+
+    struct list_elem *tmp = list_begin(&(current->donations));
+    struct thread *donor = list_entry(tmp, struct thread, donation_elem);
+    current->priority = donor->priority;
 }
 
 /* Creates a new kernel thread named NAME with the given initial
@@ -251,7 +305,7 @@ tid_t thread_create(const char *name, int priority,
 
     /* Add to run queue. */
     thread_unblock(t);
-    test_max_priority();
+    execute_max_priority();
 
     return tid;
 }
@@ -371,8 +425,11 @@ void thread_sleep(int64_t ticks) {
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void thread_set_priority(int new_priority) {
-    thread_current()->priority = new_priority;
-    test_max_priority();
+    if (list_empty(&thread_current()->donations)) {
+        thread_current()->priority = new_priority;
+    }
+    thread_current()->init_priority = new_priority;
+    execute_max_priority();
 }
 
 /* Returns the current thread's priority. */
@@ -466,9 +523,9 @@ init_thread(struct thread *t, const char *name, int priority) {
     strlcpy(t->name, name, sizeof t->name);
     t->tf.rsp = (uint64_t)t + PGSIZE - sizeof(void *);
     t->priority = priority;
-    // t->init_priority = priority;
-    // t->wait_on_lock = NULL;
-    // list_init(&(t->donations));
+    t->init_priority = priority;
+    t->wait_on_lock = NULL;
+    list_init(&(t->donations));
     t->magic = THREAD_MAGIC;
 }
 

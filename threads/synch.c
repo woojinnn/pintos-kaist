@@ -110,6 +110,7 @@ void sema_up(struct semaphore *sema) {
                                   struct thread, elem));
     sema->value++;
     intr_set_level(old_level);
+    execute_max_priority();
 }
 
 static void sema_test_helper(void *sema_);
@@ -166,7 +167,7 @@ void lock_init(struct lock *lock) {
     sema_init(&lock->semaphore, 1);
 }
 
-/* Acquires LOCK, sleeping until it becomes available if
+/* Acquires LOCK, sleeping until itF becomes available if
    necessary.  The lock must not already be held by the current
    thread.
 
@@ -179,7 +180,7 @@ void lock_acquire(struct lock *lock) {
     ASSERT(!intr_context());
     ASSERT(!lock_held_by_current_thread(lock));
 
-    if(!lock->holder) {
+    if(lock->holder != NULL) {
         thread_current()->wait_on_lock = lock;
         donate_priority();
     }
@@ -217,8 +218,13 @@ void lock_release(struct lock *lock) {
     ASSERT(lock != NULL);
     ASSERT(lock_held_by_current_thread(lock));
 
+    list_sort(&(lock->semaphore.waiters), priority_less, NULL);
     lock->holder = NULL;
+    remove_with_lock(lock);
+    refresh_priority();
+    sort_donation_list();
     sema_up(&lock->semaphore);
+    execute_max_priority();
 }
 
 /* Returns true if the current thread holds LOCK, false
