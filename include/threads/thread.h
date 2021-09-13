@@ -94,11 +94,12 @@ struct thread {
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem; /* List element. */
+    struct list_elem block_elem;
+    struct list_elem donation_elem;
 
     int init_priority;
     struct lock *wait_on_lock;
     struct list donations;
-    struct list_elem donation_elem;
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -168,6 +169,13 @@ int thread_get_nice(void);
 void thread_set_nice(int);
 int thread_get_recent_cpu(void);
 int thread_get_load_avg(void);
+
+void mlfqs_priority (struct thread *t);
+void mlfqs_recent_cpu (struct thread *t);
+void mlfqs_load_avg (void);
+void mlfqs_increment (void);
+void mlfqs_recalc_recent_cpu (void);
+void mlfqs_recalc_priority (void);
 
 void do_iret(struct intr_frame *tf);
 
