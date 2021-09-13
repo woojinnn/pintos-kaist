@@ -109,6 +109,10 @@ struct thread {
     struct supplemental_page_table spt;
 #endif
 
+    /* mlfqs */
+    int nice;
+    int recent_cpu;
+
     /* Owned by thread.c. */
     struct intr_frame tf; /* Information for switching */
     unsigned magic;       /* Detects stack overflow. */

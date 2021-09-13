@@ -50,6 +50,11 @@ static long long idle_ticks;   /* # of timer ticks spent idle. */
 static long long kernel_ticks; /* # of timer ticks in kernel threads. */
 static long long user_ticks;   /* # of timer ticks in user programs. */
 
+/* mlfqs */
+#define NICE_DEFAULT 0
+#define RECENT_CPU_DEFAULT 0
+#define LOAD_AVG_DEFAULT 0
+
 /* Scheduling. */
 #define TIME_SLICE 4          /* # of timer ticks to give each thread. */
 static unsigned thread_ticks; /* # of timer ticks since last yield. */
@@ -525,6 +530,8 @@ init_thread(struct thread *t, const char *name, int priority) {
     t->priority = priority;
     t->init_priority = priority;
     t->wait_on_lock = NULL;
+    t->nice = NICE_DEFAULT;
+    t->recent_cpu = RECENT_CPU_DEFAULT;
     list_init(&(t->donations));
     t->magic = THREAD_MAGIC;
 }
