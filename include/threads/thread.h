@@ -94,7 +94,7 @@ struct thread {
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem; /* List element. */
-    struct list_elem block_elem;
+    struct list_elem all_elem;
     struct list_elem donation_elem;
 
     int init_priority;
@@ -137,6 +137,7 @@ void thread_init(void);
 void thread_start(void);
 
 void thread_tick(void);
+void thread_wake(void);
 void thread_print_stats(void);
 
 void build_donations(void);
