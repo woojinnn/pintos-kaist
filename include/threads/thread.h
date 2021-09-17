@@ -94,7 +94,7 @@ struct thread {
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem; /* List element. */
-    struct list_elem block_elem;
+    struct list_elem all_elem;
     struct list_elem donation_elem;
 
     int init_priority;
@@ -137,6 +137,7 @@ void thread_init(void);
 void thread_start(void);
 
 void thread_tick(void);
+void thread_wake(void);
 void thread_print_stats(void);
 
 void build_donations(void);
@@ -170,12 +171,12 @@ void thread_set_nice(int);
 int thread_get_recent_cpu(void);
 int thread_get_load_avg(void);
 
-void mlfqs_priority (struct thread *t);
-void mlfqs_recent_cpu (struct thread *t);
-void mlfqs_load_avg (void);
-void mlfqs_increment (void);
-void mlfqs_recalc_recent_cpu (void);
-void mlfqs_recalc_priority (void);
+void mlfqs_priority(struct thread *t);
+void mlfqs_recent_cpu(struct thread *t);
+void mlfqs_load_avg(void);
+void mlfqs_increment(void);
+void mlfqs_recalc_recent_cpu(void);
+void mlfqs_recalc_priority(void);
 
 void do_iret(struct intr_frame *tf);
 
