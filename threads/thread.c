@@ -135,7 +135,6 @@ void thread_init(void) {
     /* Init the globla thread context */
     lock_init(&tid_lock);
     list_init(&ready_list);
-    list_init(&block_list);
     list_init(&sleep_list);
     list_init(&all_list);
     list_init(&destruction_req);
@@ -157,8 +156,6 @@ void thread_start(void) {
     struct semaphore idle_started;
     sema_init(&idle_started, 0);
     thread_create("idle", PRI_MIN, idle, &idle_started);
-
-    load_avg = LOAD_AVG_DEFAULT;
 
     /* Start preemptive thread scheduling. */
     load_avg = LOAD_AVG_DEFAULT;
@@ -369,7 +366,6 @@ void thread_unblock(struct thread *t) {
 
     old_level = intr_disable();
     ASSERT(t->status == THREAD_BLOCKED);
-    list_remove(&(t->block_elem));
     list_insert_ordered(&ready_list, &t->elem, priority_less, NULL);
     t->status = THREAD_READY;
     intr_set_level(old_level);
