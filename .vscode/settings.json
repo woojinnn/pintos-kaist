@@ -7,6 +7,7 @@
         "init.h": "c",
         "tests.h": "c",
         "synch.h": "c",
-        "flags.h": "c"
+        "flags.h": "c",
+        "process.h": "c"
     }
 }

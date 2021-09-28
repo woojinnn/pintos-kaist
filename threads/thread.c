@@ -260,7 +260,8 @@ void execute_max_priority(void) {
     if (!list_empty(&ready_list)) {
         struct thread *max_thread = list_entry(list_begin(&ready_list), struct thread, elem);
         if (max_thread->priority > thread_get_priority()) {
-            thread_yield();
+            if (!intr_context())
+                thread_yield();
         }
     }
 }

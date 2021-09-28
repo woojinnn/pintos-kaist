@@ -8,7 +8,7 @@
             "name": "(gdb) Launch",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/threads/build/kernel.o",
+            "program": "${workspaceFolder}/userprog/build/kernel.o",
             "args": [],
             "stopAtEntry": true,
             "cwd": "${fileDirname}",
