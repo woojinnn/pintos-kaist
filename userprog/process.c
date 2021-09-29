@@ -31,6 +31,9 @@ static void __do_fork(void *);
 static void argument_stack(char **argv, int argc, uintptr_t *rsp_addr);
 static void set_arg_reg(struct intr_frame *_if, int argc, char *argv_0);
 
+static struct thread *get_child_process(tid_t pid);
+static void remove_child_process(struct thread *cp);
+
 /* General process initializer for initd and other process. */
 static void
 process_init(void) {
@@ -55,7 +58,13 @@ tid_t process_create_initd(const char *file_name) {
 
     /* Create a new thread to execute FILE_NAME. */
     char *tmp;
-    tid = thread_create(strtok_r(file_name, " ", &tmp), PRI_DEFAULT, initd, fn_copy);
+    char *thread_name = palloc_get_page(0);
+    if (thread_name == NULL)
+        return TID_ERROR;
+    strlcpy(thread_name, file_name, PGSIZE);
+    tid = thread_create(strtok_r(thread_name, " ", &tmp), PRI_DEFAULT, initd, fn_copy);
+    palloc_free_page(thread_name);
+
     if (tid == TID_ERROR)
         palloc_free_page(fn_copy);
     return tid;
@@ -191,7 +200,7 @@ void argument_stack(char **argv, int argc, uintptr_t *rsp) {
 
 void set_arg_reg(struct intr_frame *_if, int argc, char *argv_0) {
     _if->R.rdi = (uint64_t)argc;
-    _if->R.rsi = (uint64_t)argv_0;
+    _if->R.rsi = (uint64_t)(_if->rsp + sizeof(uintptr_t));
 }
 
 /* Switch the current execution context to the f_name.
@@ -224,8 +233,10 @@ int process_exec(void *f_name) {
 
     /* And then load the binary */
     success = load(argv[0], &_if);
+    sema_up(&(thread_current()->load_sema));
 
     if (success) {
+        thread_current()->process_load = true;
         argument_stack(argv, argc, (uintptr_t *)(&(_if.rsp)));
         set_arg_reg(&_if, argc, argv[0]);
     }
@@ -266,8 +277,12 @@ void process_exit(void) {
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
+    curr->process_exit = true;
 
+    // TODO: Do not print these messages when a kernel thread that is not a user process terminates, or when the halt system call is invoked.
+    printf("%s: exit(%d)", curr->name, curr->status);
     process_cleanup();
+    // sema_up(&(curr->parent->exit_sema));
 }
 
 /* Free the current process's resources. */
@@ -591,6 +606,28 @@ setup_stack(struct intr_frame *if_) {
             palloc_free_page(kpage);
     }
     return success;
+}
+
+struct thread *get_child_process(tid_t pid) {
+    struct thread *curr = thread_current();
+    for (struct list_elem *tmp = list_begin(&curr->childs); tmp != list_end(&curr->childs); tmp = list_next(tmp)) {
+        struct thread *child = list_entry(tmp, struct thread, child_elem);
+        if (child->tid == pid) {
+            return child;
+        }
+    }
+    return NULL;
+}
+
+void remove_child_process(struct thread *cp) {
+    struct thread *curr = thread_current();
+    for (struct list_elem *tmp = list_begin(&curr->childs); tmp != list_end(&curr->childs); tmp = list_next(tmp)) {
+        struct thread *child = list_entry(tmp, struct thread, child_elem);
+        if (child->tid == cp->tid) {
+            list_remove(tmp);
+            palloc_free_page(child);
+        }
+    }
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel

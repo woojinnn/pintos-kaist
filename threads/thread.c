@@ -332,6 +332,18 @@ tid_t thread_create(const char *name, int priority,
     t->tf.cs = SEL_KCSEG;
     t->tf.eflags = FLAG_IF;
 
+    // USERPROG
+    t->parent = thread_current();
+
+    t->process_load = false;
+    sema_init(&(t->load_sema), 0);
+
+    t->process_exit = false;
+    sema_init(&(t->exit_sema), 0);
+
+    list_push_back(&(thread_current()->childs), &(t->child_elem));
+    // END USERPROG
+
     /* Add to run queue. */
     list_push_back(&all_list, &t->all_elem);
     thread_unblock(t);
@@ -647,6 +659,10 @@ init_thread(struct thread *t, const char *name, int priority) {
     t->recent_cpu = running_thread()->recent_cpu;
     list_init(&(t->donations));
     t->magic = THREAD_MAGIC;
+
+#ifdef USERPROG
+    list_init(&(t->childs));
+#endif
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
