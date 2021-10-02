@@ -660,9 +660,11 @@ init_thread(struct thread *t, const char *name, int priority) {
     list_init(&(t->donations));
     t->magic = THREAD_MAGIC;
 
-#ifdef USERPROG
+    // USERPROG
     list_init(&(t->childs));
-#endif
+    t->next_fd = 2;
+    t->fd_table = NULL;
+    // end USERPROG
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should

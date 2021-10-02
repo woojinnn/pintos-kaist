@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 
+#include "filesys/file.h"
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #ifdef VM
@@ -118,6 +119,10 @@ struct thread {
     bool process_exit;
     struct semaphore exit_sema;
     int exit_status;
+
+    struct file **fd_table;
+    int next_fd;
+
 // END USERPROG
 #ifdef VM
     /* Table for whole virtual memory owned by thread. */

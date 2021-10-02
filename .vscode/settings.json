@@ -8,6 +8,7 @@
         "tests.h": "c",
         "synch.h": "c",
         "flags.h": "c",
-        "process.h": "c"
+        "process.h": "c",
+        "palloc.h": "c"
     }
 }

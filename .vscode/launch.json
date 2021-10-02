@@ -9,6 +9,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/userprog/build/kernel.o",
+            "targetArchitecture": "x86_64",
             "args": [],
             "stopAtEntry": true,
             "cwd": "${fileDirname}",
