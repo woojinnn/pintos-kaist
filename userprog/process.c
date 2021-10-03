@@ -299,6 +299,7 @@ int process_wait(tid_t child_tid) {
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
     struct thread *child = get_child_process(child_tid);
+    struct thread *curr = thread_current();
 
     struct list_elem *tmp;
     struct dead_child *tmp_info;
@@ -306,15 +307,12 @@ int process_wait(tid_t child_tid) {
 
     if (child != NULL) {
         sema_down(&(child->exit_sema));
-        status = child->exit_status;
     }
 
     for (tmp = list_begin(&curr->dead_childs); tmp != list_end(&curr->dead_childs); tmp = list_next(tmp)) {
         tmp_info = list_entry(tmp, struct dead_child, dead_elem);
         if (tmp_info->tid == child_tid) {
-            if (child == NULL)  // already dead one
-                status = tmp_info->exit_status;
-
+            status = tmp_info->exit_status;
             tmp_info->exit_status = -1;
             return status;
         }
