@@ -664,6 +664,8 @@ init_thread(struct thread *t, const char *name, int priority) {
     list_init(&(t->childs));
     t->next_fd = 2;
     t->fd_table = NULL;
+
+    list_init(&(t->dead_childs));
     // end USERPROG
 }
 

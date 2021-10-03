@@ -96,7 +96,7 @@ tid_t process_fork(const char *name, struct intr_frame *if_) {
     memcpy(copied_if, if_, sizeof(struct intr_frame));
 
     tid_t child_tid = thread_create(name,
-                         PRI_DEFAULT, __do_fork, (void *)copied_if);
+                                    PRI_DEFAULT, __do_fork, (void *)copied_if);
     sema_down(&(get_child_process(child_tid)->load_sema));
     return child_tid;
 }
@@ -252,7 +252,7 @@ int process_exec(void *f_name) {
     _if.eflags = FLAG_IF | FLAG_MBS;
 
     int argc = 0;
-    char *argv[128];
+    char *argv[128] = {0};
     char *tmp;
     char *token = strtok_r(file_name, " ", &tmp);
     while (token != NULL) {
@@ -299,16 +299,33 @@ int process_wait(tid_t child_tid) {
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
     struct thread *child = get_child_process(child_tid);
-    struct thread *curr = thread_current(); // for debugging
 
-    if (child == NULL) {
-        printf("[process wait]: error. child is NULL\n");
+    struct list_elem *tmp;
+    struct dead_child *tmp_info;
+    int status;
+
+    if (child != NULL) {
+        sema_down(&(child->exit_sema));
+        status = child->exit_status;
     }
 
-    sema_down(&(child->exit_sema));
-    list_remove(&(child->child_elem));
+    for (tmp = list_begin(&curr->dead_childs); tmp != list_end(&curr->dead_childs); tmp = list_next(tmp)) {
+        tmp_info = list_entry(tmp, struct dead_child, dead_elem);
+        if (tmp_info->tid == child_tid) {
+            if (child == NULL)  // already dead one
+                status = tmp_info->exit_status;
 
-    return child->exit_status;
+            tmp_info->exit_status = -1;
+            return status;
+        }
+    }
+
+    if (child == NULL) {
+        // there is no such child_tid
+        // same as sys_exit(-1)
+        curr->exit_status = -1;
+        thread_exit();
+    }
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -320,12 +337,25 @@ void process_exit(void) {
 	 * TODO: We recommend you to implement process resource cleanup here. */
     curr->process_exit = true;
 
+    while (!list_empty(&(curr->dead_childs))) {
+        struct dead_child *tmp = list_entry(list_pop_front(&(curr->dead_childs)), struct dead_child, dead_elem);
+        free(tmp);
+    }
+
     for (int i = curr->next_fd - 1; i >= 2; i--) {
         process_close_file(i);
     }
     free(curr->fd_table);
     // TODO: Do not print these messages when a kernel thread that is not a user process terminates, or when the halt system call is invoked.
     printf("%s: exit(%d)\n", curr->name, curr->exit_status);
+
+    struct dead_child *dead = (struct dead_child *)malloc(sizeof(struct dead_child));
+    dead->tid = curr->tid;
+    dead->exit_status = curr->exit_status;
+    list_push_back(&(curr->parent->dead_childs), &(dead->dead_elem));
+
+    list_remove(&(curr->child_elem));
+
     process_cleanup();
     sema_up(&(curr->exit_sema));
 }

@@ -173,27 +173,24 @@ tid_t sys_fork(const char *thread_name, struct intr_frame *f) {
     return process_fork(thread_name, f);
 }
 
-tid_t sys_exec(const char *cmd_line) {
+int sys_exec(const char *cmd_line) {
     check_bad_ptr(cmd_line);
 
-    // create child process
-    process_create_initd(cmd_line);
-
-    struct thread *child = list_entry(list_back(&(thread_current()->childs)), struct thread, child_elem);
-
-    // wait for child process to load
-    sema_down(&(child->load_sema));
-
-    // child process' load fail
-    if (!child->process_load)
+    void *cmd_copy;
+    cmd_copy = palloc_get_page(0);
+    if (cmd_copy == NULL)
         return -1;
+    cmd_copy += 0x8000000000;
+    strlcpy(cmd_copy, cmd_line, PGSIZE);
 
-    return child->tid;
+    // create child process
+    process_exec(cmd_copy);
+    sys_exit(-1);
 }
 
 int sys_wait(tid_t pid) {
-    struct thread *tmp = thread_current();  // for debugging
-    return process_wait(pid);
+    int status = process_wait(pid);
+    return status;
 }
 
 bool sys_create(const char *file, unsigned initial_size) {
