@@ -190,7 +190,7 @@ __do_fork(void *aux) {
 	 * TODO:       the resources of parent.*/
     process_init();
     for (int i = 2; i < parent->next_fd; i++) {
-        if(parent->fd_table[i] == NULL){
+        if (parent->fd_table[i] == NULL) {
             process_add_file(NULL);
             continue;
         }
@@ -352,6 +352,9 @@ void process_exit(void) {
         free(tmp);
     }
 
+    if (curr->file_executing != NULL){
+        file_close(curr->file_executing);
+    }
     for (int i = curr->next_fd - 1; i >= 2; i--) {
         process_close_file(i);
     }
@@ -596,12 +599,14 @@ load(const char *file_name, struct intr_frame *if_) {
 
     /* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
-    // file_deny_write(file);
     success = true;
 
 done:
     /* We arrive here whether the load is successful or not. */
-    file_close(file);
+    if (file != NULL) {
+        t->file_executing = file;
+        file_deny_write(file);
+    }
     return success;
 }
 

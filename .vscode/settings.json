@@ -10,6 +10,8 @@
         "flags.h": "c",
         "process.h": "c",
         "palloc.h": "c",
-        "lib.h": "c"
+        "lib.h": "c",
+        "file.h": "c",
+        "*.inc": "c"
     }
 }

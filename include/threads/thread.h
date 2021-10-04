@@ -127,6 +127,8 @@ struct thread {
 
     bool is_user_thread;
 
+    struct file *file_executing;
+
 // END USERPROG
 #ifdef VM
     /* Table for whole virtual memory owned by thread. */

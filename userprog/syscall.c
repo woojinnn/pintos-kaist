@@ -284,6 +284,9 @@ int sys_write(int fd, const void *buffer, unsigned size) {
     }
 
     f += 0x8000000000;
+
+    void *inode = file_get_inode(f);  // for debugging
+
     int written = (int)file_write(f, buffer, (off_t)size);
     lock_release(&filesys_lock);
     return written;
