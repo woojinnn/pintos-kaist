@@ -125,6 +125,8 @@ struct thread {
 
     struct list dead_childs;
 
+    bool is_user_thread;
+
 // END USERPROG
 #ifdef VM
     /* Table for whole virtual memory owned by thread. */

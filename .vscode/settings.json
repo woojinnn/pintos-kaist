@@ -9,6 +9,7 @@
         "synch.h": "c",
         "flags.h": "c",
         "process.h": "c",
-        "palloc.h": "c"
+        "palloc.h": "c",
+        "lib.h": "c"
     }
 }

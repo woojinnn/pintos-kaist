@@ -67,6 +67,10 @@ tid_t process_create_initd(const char *file_name) {
         return TID_ERROR;
     strlcpy(thread_name, file_name, PGSIZE);
     tid = thread_create(strtok_r(thread_name, " ", &tmp), PRI_DEFAULT, initd, fn_copy);
+
+    struct thread *child = get_child_process(tid);
+    child->is_user_thread = true;
+
     free(thread_name);
 
     if (tid == TID_ERROR)
@@ -156,6 +160,8 @@ __do_fork(void *aux) {
     struct intr_frame *parent_if = (struct intr_frame *)aux;
     bool succ = true;
 
+    current->is_user_thread = parent->is_user_thread;
+
     /* 1. Read the cpu context to local stack. */
     memcpy(&if_, parent_if, sizeof(struct intr_frame));
     free(aux);
@@ -184,6 +190,11 @@ __do_fork(void *aux) {
 	 * TODO:       the resources of parent.*/
     process_init();
     for (int i = 2; i < parent->next_fd; i++) {
+        if(parent->fd_table[i] == NULL){
+            process_add_file(NULL);
+            continue;
+        }
+
         process_add_file(file_duplicate(parent->fd_table[i]));
     }
     sema_up(&(current->load_sema));
@@ -267,6 +278,7 @@ int process_exec(void *f_name) {
 
     /* And then load the binary */
     success = load(argv[0], &_if);
+
     sema_up(&(thread_current()->load_sema));
 
     if (success) {
@@ -345,7 +357,8 @@ void process_exit(void) {
     }
     free(curr->fd_table);
     // TODO: Do not print these messages when a kernel thread that is not a user process terminates, or when the halt system call is invoked.
-    printf("%s: exit(%d)\n", curr->name, curr->exit_status);
+    if (curr->is_user_thread == true)
+        printf("%s: exit(%d)\n", curr->name, curr->exit_status);
 
     struct dead_child *dead = (struct dead_child *)malloc(sizeof(struct dead_child));
     dead->tid = curr->tid;
@@ -427,6 +440,7 @@ bool process_close_file(int fd) {
 
     file_close(f);
     curr->fd_table[fd] = NULL;
+
     return true;
 }
 
@@ -582,7 +596,7 @@ load(const char *file_name, struct intr_frame *if_) {
 
     /* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
-
+    // file_deny_write(file);
     success = true;
 
 done:

@@ -342,6 +342,8 @@ tid_t thread_create(const char *name, int priority,
     sema_init(&(t->exit_sema), 0);
 
     list_push_back(&(thread_current()->childs), &(t->child_elem));
+    
+    t->is_user_thread = false;
     // END USERPROG
 
     /* Add to run queue. */
