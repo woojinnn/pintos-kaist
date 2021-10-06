@@ -217,8 +217,10 @@ __do_fork(void *aux) {
         }
 
         struct file *file_duplicated = file_duplicate(parent->fd_table[i]);
-        if (file_duplicated == NULL)
+        if (file_duplicated == NULL) {
+            current->next_fd = i;
             goto error;
+        }
         current->fd_table[i] = file_duplicated;
     }
 
@@ -232,7 +234,7 @@ __do_fork(void *aux) {
         do_iret(&(current->tf));
 error:
     parent->child_do_fork_success = false;
-    sema_up(&parent->load_sema);
+    sema_up(&current->load_sema);
     current->exit_status = -1;
     thread_exit();
 }
