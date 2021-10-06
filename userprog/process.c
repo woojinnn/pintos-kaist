@@ -97,11 +97,23 @@ initd(void *f_name) {
 tid_t process_fork(const char *name, struct intr_frame *if_) {
     /* Clone current thread to new thread.*/
     struct intr_frame *copied_if = (struct intr_frame *)malloc(sizeof(struct intr_frame));
+    if (copied_if == NULL)
+        return TID_ERROR;
     memcpy(copied_if, if_, sizeof(struct intr_frame));
 
     tid_t child_tid = thread_create(name,
                                     PRI_DEFAULT, __do_fork, (void *)copied_if);
-    sema_down(&(get_child_process(child_tid)->load_sema));
+    if (child_tid == TID_ERROR) {
+        free(copied_if);
+        return child_tid;
+    }
+
+    struct thread *child = get_child_process(child_tid);
+    sema_down(&(child->load_sema));
+
+    if (thread_current()->child_do_fork_success == false) {
+        return TID_ERROR;
+    }
     return child_tid;
 }
 
@@ -141,6 +153,7 @@ duplicate_pte(uint64_t *pte, void *va, void *aux) {
         /* 6. TODO: if fail to insert page, do error handling. */
         pml4_destroy(current->pml4);
         current->exit_status = -1;
+        palloc_free_page(newpage);
         return false;
     }
     return true;
@@ -189,22 +202,36 @@ __do_fork(void *aux) {
 	 * TODO:       from the fork() until this function successfully duplicates
 	 * TODO:       the resources of parent.*/
     process_init();
+
+    current->next_fd = parent->next_fd;
+    void *old_fd_table = current->fd_table;
+    current->fd_table = (struct file **)realloc(current->fd_table, sizeof(struct file *) * current->next_fd);
+    if (current->fd_table == NULL) {
+        current->fd_table = old_fd_table;
+        goto error;
+    }
     for (int i = 2; i < parent->next_fd; i++) {
         if (parent->fd_table[i] == NULL) {
-            process_add_file(NULL);
+            current->fd_table[i] = NULL;
             continue;
         }
 
-        process_add_file(file_duplicate(parent->fd_table[i]));
+        struct file *file_duplicated = file_duplicate(parent->fd_table[i]);
+        if (file_duplicated == NULL)
+            goto error;
+        current->fd_table[i] = file_duplicated;
     }
+
+    parent->child_do_fork_success = true;
     sema_up(&(current->load_sema));
 
-    current->tf.R.rax = 0;  // return 0
+    current->tf.R.rax = 0;  // return 0 for child
 
     /* Finally, switch to the newly created process. */
     if (succ)
         do_iret(&(current->tf));
 error:
+    parent->child_do_fork_success = false;
     sema_up(&parent->load_sema);
     current->exit_status = -1;
     thread_exit();
@@ -277,7 +304,7 @@ int process_exec(void *f_name) {
     process_cleanup();
 
     /* And then load the binary */
-    success = load(argv[0], &_if);
+    success = load((const char *)argv[0], &_if);
 
     sema_up(&(thread_current()->load_sema));
 
@@ -346,13 +373,16 @@ void process_exit(void) {
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
     curr->process_exit = true;
+    struct thread *parent = curr->parent;
 
+    size_t p_size = list_size(&(parent->dead_childs));
+    size_t size = list_size(&(curr->dead_childs));
     while (!list_empty(&(curr->dead_childs))) {
         struct dead_child *tmp = list_entry(list_pop_front(&(curr->dead_childs)), struct dead_child, dead_elem);
         free(tmp);
     }
 
-    if (curr->file_executing != NULL){
+    if (curr->file_executing != NULL) {
         file_close(curr->file_executing);
     }
     for (int i = curr->next_fd - 1; i >= 2; i--) {
@@ -362,7 +392,7 @@ void process_exit(void) {
     // TODO: Do not print these messages when a kernel thread that is not a user process terminates, or when the halt system call is invoked.
     if (curr->is_user_thread == true)
         printf("%s: exit(%d)\n", curr->name, curr->exit_status);
-
+    
     struct dead_child *dead = (struct dead_child *)malloc(sizeof(struct dead_child));
     dead->tid = curr->tid;
     dead->exit_status = curr->exit_status;
@@ -420,7 +450,12 @@ int process_add_file(struct file *f) {
         }
     }
     curr->next_fd++;
+    void *old_fd_table = curr->fd_table;
     curr->fd_table = (struct file **)realloc(curr->fd_table, curr->next_fd * sizeof(struct file *));
+    if (curr->fd_table == NULL) {
+        curr->fd_table = old_fd_table;
+        return -1;
+    }
     curr->fd_table[curr->next_fd - 1] = f;
     return curr->next_fd - 1;
 }
@@ -744,17 +779,6 @@ struct thread *get_child_process(tid_t pid) {
         }
     }
     return NULL;
-}
-
-void remove_child_process(struct thread *cp) {
-    struct thread *curr = thread_current();
-    for (struct list_elem *tmp = list_begin(&curr->childs); tmp != list_end(&curr->childs); tmp = list_next(tmp)) {
-        struct thread *child = list_entry(tmp, struct thread, child_elem);
-        if (child->tid == cp->tid) {
-            list_remove(tmp);
-            palloc_free_page(child);
-        }
-    }
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel

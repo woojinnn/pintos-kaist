@@ -163,6 +163,7 @@ void sys_halt(void) {
 }
 
 void sys_exit(int status) {
+    struct thread *curr = thread_current();
     thread_current()->exit_status = status;
     thread_exit();
 }
@@ -185,7 +186,8 @@ int sys_exec(const char *cmd_line) {
 
     // create child process
     process_exec(cmd_copy);
-    sys_exit(-1);
+    // sys_exit(-1);
+    return -1;
 }
 
 int sys_wait(tid_t pid) {

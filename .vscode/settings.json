@@ -12,6 +12,9 @@
         "palloc.h": "c",
         "lib.h": "c",
         "file.h": "c",
-        "*.inc": "c"
+        "*.inc": "c",
+        "directory.h": "c",
+        "random.h": "c",
+        "stdio.h": "c"
     }
 }

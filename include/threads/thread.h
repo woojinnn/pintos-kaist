@@ -127,6 +127,8 @@ struct thread {
 
     bool is_user_thread;
 
+    bool child_do_fork_success;
+
     struct file *file_executing;
 
 // END USERPROG

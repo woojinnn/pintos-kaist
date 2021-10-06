@@ -144,7 +144,9 @@ main (int argc UNUSED, char *argv[] UNUSED) {
   msg ("begin");
 
   int first_run_depth = make_children ();
+  msg ("first_run_depth: %d", first_run_depth); //mine
   CHECK (first_run_depth >= EXPECTED_DEPTH_TO_PASS, "Spawned at least %d children.", EXPECTED_DEPTH_TO_PASS);
+  msg ("passed first_run_depth"); //mine
 
   for (int i = 0; i < EXPECTED_REPETITIONS; i++) {
     int current_run_depth = make_children();
