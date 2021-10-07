@@ -15,6 +15,9 @@
         "*.inc": "c",
         "directory.h": "c",
         "random.h": "c",
-        "stdio.h": "c"
+        "stdio.h": "c",
+        "loader.h": "c",
+        "syscall.h": "c",
+        "gdt.h": "c"
     }
 }
