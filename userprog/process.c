@@ -306,7 +306,7 @@ int process_exec(void *f_name) {
     process_cleanup();
 
     /* And then load the binary */
-    success = load((const char *)argv[0], &_if);
+    success = load((char *)argv[0], &_if);
 
     sema_up(&(thread_current()->load_sema));
 

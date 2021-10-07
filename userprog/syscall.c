@@ -169,9 +169,14 @@ void sys_exit(int status) {
 }
 
 tid_t sys_fork(const char *thread_name, struct intr_frame *f) {
+    
     check_bad_ptr(thread_name);
 
-    return process_fork(thread_name, f);
+    lock_acquire(&filesys_lock);
+    tid_t fork_result = process_fork(thread_name, f);
+    lock_release(&filesys_lock);
+
+    return fork_result;
 }
 
 int sys_exec(const char *cmd_line) {
