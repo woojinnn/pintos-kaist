@@ -219,7 +219,9 @@ int sys_open(const char *file) {
     if (*file == '\0')
         return -1;
 
+    lock_acquire(&filesys_lock);
     void *f = filesys_open(file);
+    lock_release(&filesys_lock);
 
     if (f == NULL)
         return -1;

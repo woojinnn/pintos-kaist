@@ -299,8 +299,8 @@ int process_exec(void *f_name) {
     char *token = strtok_r(file_name, " ", &tmp);
     while (token != NULL) {
         argv[argc] = token;
-        token = strtok_r(NULL, " ", &tmp);
         argc++;
+        token = strtok_r(NULL, " ", &tmp);
     }
     argv[argc] = NULL;
 
