@@ -52,16 +52,12 @@ main (int argc UNUSED, char *argv[] UNUSED) {
 
   close (fd1);
   close (fd2);
-  msg("11111111111111111");
   seek (fd3, 60);
   byte_cnt += read (fd3, buffer + byte_cnt, 10);
-  msg("22222222222222222");
 
   dup2 (dup2 (fd3, fd2), fd1);
-  msg("444444444444444");
   byte_cnt += read (fd2, buffer + byte_cnt, 10);
   byte_cnt += read (fd1, buffer + byte_cnt, 10);
-  msg("3333333333333333");
 
   for (fd5 = 10; fd5 == fd1 || fd5 == fd2 || fd5 == fd3 || fd5 == fd4; fd5++){}
   dup2 (1, fd5);

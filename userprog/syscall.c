@@ -155,7 +155,7 @@ void syscall_handler(struct intr_frame *f) {
             break;
 
         case SYS_DUP2:
-            sys_dup2((int)args[0], (int)args[1]);
+            SET_RAX(f, sys_dup2((int)args[0], (int)args[1]));
             break;
 
         default:
