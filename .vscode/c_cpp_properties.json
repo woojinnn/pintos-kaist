@@ -4,7 +4,8 @@
             "name": "Linux",
             "defines": [
                 "USERPROG",
-                "FILESYS"
+                "FILESYS",
+                "EXTRA2"
             ],
             "includePath": [
                 "${workspaceFolder}/**"

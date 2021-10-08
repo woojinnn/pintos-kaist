@@ -29,6 +29,7 @@ static int sys_write(int fd, const void *buffer, unsigned size);
 static void sys_seek(int fd, unsigned position);
 static unsigned sys_tell(int fd);
 static void sys_close(int fd);
+static int sys_dup2(int oldfd, int newfd);
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
@@ -49,6 +50,8 @@ void syscall_handler(struct intr_frame *);
 #define MSR_SYSCALL_MASK 0xc0000084 /* Mask for the eflags */
 
 extern struct lock filesys_lock;
+extern uint64_t stdin_file;
+extern uint64_t stdout_file;
 
 void syscall_init(void) {
     write_msr(MSR_STAR, ((uint64_t)SEL_UCSEG - 0x10) << 48 |
@@ -151,6 +154,10 @@ void syscall_handler(struct intr_frame *f) {
             sys_close((int)args[0]);
             break;
 
+        case SYS_DUP2:
+            sys_dup2((int)args[0], (int)args[1]);
+            break;
+
         default:
             thread_exit();
     }
@@ -169,7 +176,6 @@ void sys_exit(int status) {
 }
 
 tid_t sys_fork(const char *thread_name, struct intr_frame *f) {
-    
     check_bad_ptr(thread_name);
 
     lock_acquire(&filesys_lock);
@@ -203,14 +209,20 @@ int sys_wait(tid_t pid) {
 bool sys_create(const char *file, unsigned initial_size) {
     check_bad_ptr(file);
 
-    return filesys_create(file, initial_size);
+    lock_acquire(&filesys_lock);
+    bool create_result = filesys_create(file, initial_size);
+    lock_release(&filesys_lock);
+    return create_result;
 }
 
 bool sys_remove(const char *file) {
     // check validity
     check_bad_ptr(file);
 
-    return filesys_remove(file);
+    lock_acquire(&filesys_lock);
+    bool remove_result = filesys_remove(file);
+    lock_release(&filesys_lock);
+    return remove_result;
 }
 
 int sys_open(const char *file) {
@@ -237,35 +249,40 @@ int sys_filesize(int fd) {
         return -1;
     f += 0x8000000000;
 
-    return (int)file_length(f);
+    lock_acquire(&filesys_lock);
+    int length_result = (int)file_length(f);
+    lock_release(&filesys_lock);
+    return length_result;
 }
 
 int sys_read(int fd, void *buffer, unsigned size) {
+    struct thread *curr = thread_current();
     check_bad_ptr(buffer);
     lock_acquire(&filesys_lock);
 
     int read;
 
-    if (fd == 0) {
+    void *f = process_get_file(fd);
+    if (f == NULL) {
+        lock_release(&filesys_lock);
+        sys_exit(-1);
+    }
+
+    f += 0x8000000000;
+
+    if (f == (void *)&stdin_file) {
         read = input_getc();
         lock_release(&filesys_lock);
         return read;
     }
 
-    if (fd == 1) {
+    if (f == (void *)&stdout_file) {
         lock_release(&filesys_lock);
         sys_exit(-1);
     }
 
-    void *f = process_get_file(fd);
+    read = (int)file_read(f, buffer, (off_t)size);
 
-    if (f == NULL) {
-        lock_release(&filesys_lock);
-        sys_exit(-1);
-    } else {
-        f += 0x8000000000;
-        read = (int)file_read(f, buffer, (off_t)size);
-    }
     lock_release(&filesys_lock);
     return read;
 }
@@ -274,25 +291,24 @@ int sys_write(int fd, const void *buffer, unsigned size) {
     check_bad_ptr(buffer);
     lock_acquire(&filesys_lock);
 
-    if (fd == 1) {
-        putbuf(buffer, size);
-        lock_release(&filesys_lock);
-        return size;
-    }
-
-    if (fd == 0) {
-        lock_release(&filesys_lock);
-        sys_exit(-1);
-    }
-
     void *f = process_get_file(fd);
-
     if (f == NULL) {
         lock_release(&filesys_lock);
         sys_exit(-1);
     }
 
     f += 0x8000000000;
+
+    if (f == (void *)&stdout_file) {
+        putbuf(buffer, size);
+        lock_release(&filesys_lock);
+        return size;
+    }
+
+    if (f == (void *)&stdin_file) {
+        lock_release(&filesys_lock);
+        sys_exit(-1);
+    }
 
     void *inode = file_get_inode(f);  // for debugging
 
@@ -306,9 +322,11 @@ void sys_seek(int fd, unsigned position) {
 
     if (f == NULL)
         return;
-
     f += 0x8000000000;
+
+    lock_acquire(&filesys_lock);
     file_seek(f, (off_t)position);
+    lock_release(&filesys_lock);
 }
 
 unsigned sys_tell(int fd) {
@@ -318,10 +336,50 @@ unsigned sys_tell(int fd) {
         return -1;
 
     f += 0x8000000000;
-    return (unsigned)file_tell(f);
+    lock_acquire(&filesys_lock);
+    unsigned tell_result = (unsigned)file_tell(f);
+    lock_release(&filesys_lock);
+    return tell_result;
 }
 
 void sys_close(int fd) {
     if (process_close_file(fd) == false)
         sys_exit(-1);
+}
+
+int sys_dup2(int oldfd, int newfd) {
+    struct thread *current = thread_current();
+    void *old_f = process_get_file(oldfd);
+
+    if (old_f == NULL)
+        return -1;
+
+    if (newfd < 0)
+        return -1;
+
+    if (oldfd == newfd)
+        return newfd;
+
+    // extend fd table if required (newfd >= current->next_fd)
+    if (newfd >= current->next_fd) {
+        void *old_fd_table = current->fd_table;
+        current->fd_table = (struct file **)realloc(current->fd_table, sizeof(struct file *) * (newfd + 1));
+        if (current->fd_table == NULL) {
+            current->fd_table = old_fd_table;
+            sys_exit(-1);
+        }
+
+        for (int i = current->next_fd; i <= newfd; i++)
+            current->fd_table[i] = NULL;
+
+        current->next_fd = newfd + 1;
+    }
+
+    // close newfd contents
+    if (process_get_file(newfd) != NULL)
+        process_close_file(newfd);
+
+    current->fd_table[newfd] = current->fd_table[oldfd];
+
+    return newfd;
 }

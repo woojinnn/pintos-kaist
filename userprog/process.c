@@ -26,6 +26,9 @@
 
 struct lock filesys_lock;
 
+uint64_t stdin_file;
+uint64_t stdout_file;
+
 static void process_cleanup(void);
 static bool load(const char *file_name, struct intr_frame *if_);
 static void initd(void *f_name);
@@ -44,6 +47,13 @@ bool process_close_file(int fd);
 static void
 process_init(void) {
     struct thread *current = thread_current();
+    current->fd_table = (struct file **)realloc(current->fd_table, sizeof(struct file *) * 2);
+    if (current->fd_table == NULL) {
+        current->exit_status = -1;
+        thread_exit();
+    }
+    current->fd_table[0] = (struct file *)&stdin_file;
+    current->fd_table[1] = (struct file *)&stdout_file;
 }
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -64,16 +74,10 @@ tid_t process_create_initd(const char *file_name) {
 
     /* Create a new thread to execute FILE_NAME. */
     char *tmp;
-    char *thread_name = (char *)malloc(sizeof(char) * strlen(file_name));
-    if (thread_name == NULL)
-        return TID_ERROR;
-    strlcpy(thread_name, file_name, PGSIZE);
-    tid = thread_create(strtok_r(thread_name, " ", &tmp), PRI_DEFAULT, initd, fn_copy);
+    tid = thread_create(strtok_r(file_name, " ", &tmp), PRI_DEFAULT, initd, fn_copy);
 
     struct thread *child = get_child_process(tid);
     child->is_user_thread = true;
-
-    free(thread_name);
 
     if (tid == TID_ERROR)
         palloc_free_page(fn_copy);
@@ -212,9 +216,14 @@ __do_fork(void *aux) {
         current->fd_table = old_fd_table;
         goto error;
     }
-    for (int i = 2; i < parent->next_fd; i++) {
+    for (int i = 0; i < parent->next_fd; i++) {
         if (parent->fd_table[i] == NULL) {
             current->fd_table[i] = NULL;
+            continue;
+        }
+
+        if (parent->fd_table[i] == (struct file *)&stdin_file || parent->fd_table[i] == (struct file *)&stdout_file) {
+            current->fd_table[i] = parent->fd_table[i];
             continue;
         }
 
@@ -379,8 +388,6 @@ void process_exit(void) {
     curr->process_exit = true;
     struct thread *parent = curr->parent;
 
-    size_t p_size = list_size(&(parent->dead_childs));
-    size_t size = list_size(&(curr->dead_childs));
     while (!list_empty(&(curr->dead_childs))) {
         struct dead_child *tmp = list_entry(list_pop_front(&(curr->dead_childs)), struct dead_child, dead_elem);
         free(tmp);
@@ -389,14 +396,17 @@ void process_exit(void) {
     if (curr->file_executing != NULL) {
         file_close(curr->file_executing);
     }
-    for (int i = curr->next_fd - 1; i >= 2; i--) {
-        process_close_file(i);
+
+    if (curr->fd_table != NULL) {
+        for (int i = 0; i < curr->next_fd; ++i) {
+            process_close_file(i);
+        }
+        free(curr->fd_table);
     }
-    free(curr->fd_table);
-    // TODO: Do not print these messages when a kernel thread that is not a user process terminates, or when the halt system call is invoked.
+
     if (curr->is_user_thread == true)
         printf("%s: exit(%d)\n", curr->name, curr->exit_status);
-    
+
     struct dead_child *dead = (struct dead_child *)malloc(sizeof(struct dead_child));
     dead->tid = curr->tid;
     dead->exit_status = curr->exit_status;
@@ -465,6 +475,9 @@ int process_add_file(struct file *f) {
 }
 
 struct file *process_get_file(int fd) {
+    if (fd < 0)
+        return NULL;
+
     struct thread *curr = thread_current();
     if (fd >= curr->next_fd || curr->fd_table[fd] == NULL)
         return NULL;
@@ -480,8 +493,23 @@ bool process_close_file(int fd) {
         return false;
     }
 
-    file_close(f);
+    // determine whether we should close the file
+    int fd_tmp;
+    bool is_solo = true;
+    for (fd_tmp = 0; fd_tmp < curr->next_fd; ++fd_tmp) {
+        struct file *f_tmp = process_get_file(fd_tmp);
+        if (f == f_tmp && fd != fd_tmp) {
+            is_solo = false;
+            break;
+        }
+    }
     curr->fd_table[fd] = NULL;
+
+    if (f != (struct file *)&stdin_file && f != (struct file *)&stdout_file && is_solo == true) {
+        lock_acquire(&filesys_lock);
+        file_close(f);
+        lock_release(&filesys_lock);
+    }
 
     return true;
 }
@@ -646,7 +674,9 @@ done:
     /* We arrive here whether the load is successful or not. */
     if (file != NULL) {
         t->file_executing = file;
+        lock_acquire(&filesys_lock);
         file_deny_write(file);
+        lock_release(&filesys_lock);
     }
     return success;
 }
