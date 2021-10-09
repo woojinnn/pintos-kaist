@@ -396,6 +396,8 @@ int process_wait(tid_t child_tid) {
         curr->exit_status = -1;
         thread_exit();
     }
+
+    return child->exit_status;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -433,9 +435,12 @@ void process_exit(void) {
         printf("%s: exit(%d)\n", curr->name, curr->exit_status);
 
     struct dead_child *dead = (struct dead_child *)malloc(sizeof(struct dead_child));
+    if (dead != NULL) {
+        
     dead->tid = curr->tid;
     dead->exit_status = curr->exit_status;
     list_push_back(&(curr->parent->dead_childs), &(dead->dead_elem));
+    }
 
     list_remove(&(curr->child_elem));
 
