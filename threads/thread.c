@@ -43,6 +43,8 @@ static struct thread *idle_thread;
 static struct thread *initial_thread;
 
 extern struct lock filesys_lock;
+extern struct lock dead_lock;
+extern struct lock process_lock;
 
 /* Lock used by allocate_tid(). */
 static struct lock tid_lock;
@@ -141,6 +143,8 @@ void thread_init(void) {
     list_init(&all_list);
     list_init(&destruction_req);
     lock_init(&filesys_lock);
+    lock_init(&dead_lock);
+    lock_init(&process_lock);
 
     /* Set up a thread structure for the running thread. */
     initial_thread = running_thread();
@@ -344,7 +348,9 @@ tid_t thread_create(const char *name, int priority,
     t->process_exit = false;
     sema_init(&(t->exit_sema), 0);
 
+    lock_acquire(&process_lock);
     list_push_back(&(thread_current()->childs), &(t->child_elem));
+    lock_release(&process_lock);
     
     t->is_user_thread = false;
     // END USERPROG

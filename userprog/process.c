@@ -25,6 +25,8 @@
 #endif
 
 struct lock filesys_lock;
+struct lock dead_lock;
+struct lock process_lock;
 
 uint64_t stdin_file;
 uint64_t stdout_file;
@@ -212,23 +214,17 @@ __do_fork(void *aux) {
 
     current->next_fd = parent->next_fd;
     current->next_file = parent->next_file;
-    void *old_fd_table = current->fd_table;
     current->fd_table = (struct file **)realloc(current->fd_table, sizeof(struct file *) * current->next_fd);
     if (current->fd_table == NULL) {
-        current->fd_table = old_fd_table;
         goto error;
     }
-    void *old_files = current->files;
     current->files = (struct file **)realloc(current->files, current->next_file * sizeof(struct file *));
     if (current->next_file != 0 && current->files == NULL) {
-        current->files = old_files;
         goto error;
     }
 
     for (int j = 0; j < parent->next_file; j++) {
-        // lock_acquire(&filesys_lock);
         struct file *file_duplicated = file_duplicate(parent->files[j]);
-        // lock_release(&filesys_lock);
         if (file_duplicated == NULL) {
             current->next_file = j;
             goto error;
@@ -237,18 +233,19 @@ __do_fork(void *aux) {
     }
 
     for (int i = 0; i < parent->next_fd; i++) {
-        if (parent->fd_table[i] == NULL) {
+        struct file *parent_file = parent->fd_table[i];
+        if (parent_file == NULL) {
             current->fd_table[i] = NULL;
             continue;
         }
 
-        if (parent->fd_table[i] == (struct file *)&stdin_file || parent->fd_table[i] == (struct file *)&stdout_file) {
-            current->fd_table[i] = parent->fd_table[i];
+        if (parent_file == (struct file *)&stdin_file || parent_file == (struct file *)&stdout_file) {
+            current->fd_table[i] = parent_file;
             continue;
         }
 
         for (int k = 0; k < parent->next_file; k++) {
-            if (parent->fd_table[i] == parent->files[k]) {
+            if (parent_file == parent->files[k]) {
                 current->fd_table[i] = current->files[k];
                 break;
             }
@@ -371,24 +368,27 @@ int process_wait(tid_t child_tid) {
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
     struct thread *child = get_child_process(child_tid);
+    if (child != NULL) {
+        sema_down(&(child->exit_sema));
+    }
+
     struct thread *curr = thread_current();
 
     struct list_elem *tmp;
     struct dead_child *tmp_info;
     int status;
 
-    if (child != NULL) {
-        sema_down(&(child->exit_sema));
-    }
-
+    // lock_acquire(&dead_lock);
     for (tmp = list_begin(&curr->dead_childs); tmp != list_end(&curr->dead_childs); tmp = list_next(tmp)) {
         tmp_info = list_entry(tmp, struct dead_child, dead_elem);
         if (tmp_info->tid == child_tid) {
             status = tmp_info->exit_status;
             tmp_info->exit_status = -1;
+            // lock_release(&dead_lock);
             return status;
         }
     }
+    // lock_release(&dead_lock);
 
     if (child == NULL) {
         // there is no such child_tid
@@ -410,10 +410,12 @@ void process_exit(void) {
     curr->process_exit = true;
     struct thread *parent = curr->parent;
 
+    // lock_acquire(&dead_lock);
     while (!list_empty(&(curr->dead_childs))) {
         struct dead_child *tmp = list_entry(list_pop_front(&(curr->dead_childs)), struct dead_child, dead_elem);
         free(tmp);
     }
+    // lock_release(&dead_lock);
 
     if (curr->file_executing != NULL) {
         file_close(curr->file_executing);
@@ -422,9 +424,7 @@ void process_exit(void) {
     if (curr->fd_table != NULL) {
         if (curr->files != NULL) {
             for (int i = 0; i < curr->next_file; ++i) {
-                lock_acquire(&filesys_lock);
                 file_close(curr->files[i]);
-                lock_release(&filesys_lock);
             }
             free(curr->files);
         }
@@ -436,13 +436,16 @@ void process_exit(void) {
 
     struct dead_child *dead = (struct dead_child *)malloc(sizeof(struct dead_child));
     if (dead != NULL) {
-        
-    dead->tid = curr->tid;
-    dead->exit_status = curr->exit_status;
-    list_push_back(&(curr->parent->dead_childs), &(dead->dead_elem));
+        dead->tid = curr->tid;
+        dead->exit_status = curr->exit_status;
+        // lock_acquire(&dead_lock);
+        list_push_front(&(parent->dead_childs), &(dead->dead_elem));
+        // lock_release(&dead_lock);
     }
 
+    lock_acquire(&process_lock);
     list_remove(&(curr->child_elem));
+    lock_release(&process_lock);
 
     process_cleanup();
     sema_up(&(curr->exit_sema));
@@ -492,6 +495,7 @@ int process_add_file(struct file *f) {
     curr->files = (struct file **)realloc(curr->files, curr->next_file * sizeof(struct file *));
     if (curr->files == NULL) {
         curr->files = old_files;
+        curr->next_file--;
         return -1;
     }
     curr->files[curr->next_file - 1] = f;
@@ -507,6 +511,7 @@ int process_add_file(struct file *f) {
     curr->fd_table = (struct file **)realloc(curr->fd_table, curr->next_fd * sizeof(struct file *));
     if (curr->fd_table == NULL) {
         curr->fd_table = old_fd_table;
+        curr->next_fd--;
         return -1;
     }
     curr->fd_table[curr->next_fd - 1] = f;
@@ -831,12 +836,15 @@ setup_stack(struct intr_frame *if_) {
 
 struct thread *get_child_process(tid_t pid) {
     struct thread *curr = thread_current();
+    lock_acquire(&process_lock);
     for (struct list_elem *tmp = list_begin(&curr->childs); tmp != list_end(&curr->childs); tmp = list_next(tmp)) {
         struct thread *child = list_entry(tmp, struct thread, child_elem);
         if (child->tid == pid) {
+            lock_release(&process_lock);
             return child;
         }
     }
+    lock_release(&process_lock);
     return NULL;
 }
 
