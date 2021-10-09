@@ -213,24 +213,25 @@ __do_fork(void *aux) {
     process_init();
 
     current->next_fd = parent->next_fd;
-    current->next_file = parent->next_file;
     current->fd_table = (struct file **)realloc(current->fd_table, sizeof(struct file *) * current->next_fd);
     if (current->fd_table == NULL) {
         goto error;
     }
-    current->files = (struct file **)realloc(current->files, current->next_file * sizeof(struct file *));
-    if (current->next_file != 0 && current->files == NULL) {
+
+    // Note that files is allocated with parent's "fd table" length.
+    current->files = (struct file **)realloc(current->files, parent->next_fd * sizeof(struct file *));
+    if (current->files == NULL) {
         goto error;
     }
 
-    for (int j = 0; j < parent->next_file; j++) {
-        struct file *file_duplicated = file_duplicate(parent->files[j]);
-        if (file_duplicated == NULL) {
-            current->next_file = j;
-            goto error;
-        }
-        current->files[j] = file_duplicated;
-    }
+    // for (int j = 0; j < parent->next_file; j++) {
+    //     struct file *file_duplicated = file_duplicate(parent->files[j]);
+    //     if (file_duplicated == NULL) {
+    //         current->next_file = j;
+    //         goto error;
+    //     }
+    //     current->files[j] = file_duplicated;
+    // }
 
     for (int i = 0; i < parent->next_fd; i++) {
         struct file *parent_file = parent->fd_table[i];
@@ -244,12 +245,14 @@ __do_fork(void *aux) {
             continue;
         }
 
-        for (int k = 0; k < parent->next_file; k++) {
-            if (parent_file == parent->files[k]) {
-                current->fd_table[i] = current->files[k];
-                break;
-            }
+        struct file *file_duplicated = file_duplicate(parent->fd_table[i]);
+        if (file_duplicated == NULL) {
+            current->next_fd = i;
+            goto error;
         }
+        current->fd_table[i] = file_duplicated;
+        current->files[current->next_file] = file_duplicated;
+        current->next_file++;
     }
 
     parent->child_do_fork_success = true;
