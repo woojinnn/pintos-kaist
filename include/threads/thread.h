@@ -115,13 +115,16 @@ struct thread {
 
     bool process_load;
     struct semaphore load_sema;
+    struct semaphore fork_sema;
 
     bool process_exit;
     struct semaphore exit_sema;
     int exit_status;
 
     struct file **fd_table;
+    struct file_info **file_info_table;
     int next_fd;
+    int next_file_info;
 
     struct list dead_childs;
 
@@ -144,6 +147,11 @@ struct thread {
     /* Owned by thread.c. */
     struct intr_frame tf; /* Information for switching */
     unsigned magic;       /* Detects stack overflow. */
+};
+
+struct file_info {
+    struct file *file;
+    int fd_cnt;
 };
 
 struct dead_child {

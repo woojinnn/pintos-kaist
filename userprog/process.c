@@ -25,6 +25,7 @@
 #endif
 
 struct lock filesys_lock;
+struct lock dead_lock;
 
 uint64_t stdin_file;
 uint64_t stdout_file;
@@ -75,12 +76,13 @@ tid_t process_create_initd(const char *file_name) {
     /* Create a new thread to execute FILE_NAME. */
     char *tmp;
     tid = thread_create(strtok_r(file_name, " ", &tmp), PRI_DEFAULT, initd, fn_copy);
+    if (tid == TID_ERROR)
+        palloc_free_page(fn_copy);
 
     struct thread *child = get_child_process(tid);
     child->is_user_thread = true;
+    sema_down(&(child->load_sema));
 
-    if (tid == TID_ERROR)
-        palloc_free_page(fn_copy);
     return tid;
 }
 
@@ -115,7 +117,7 @@ tid_t process_fork(const char *name, struct intr_frame *if_) {
     }
 
     struct thread *child = get_child_process(child_tid);
-    sema_down(&(child->load_sema));
+    sema_down(&(child->fork_sema));
 
     if (thread_current()->child_do_fork_success == false) {
         return TID_ERROR;
@@ -209,6 +211,35 @@ __do_fork(void *aux) {
 	 * TODO:       the resources of parent.*/
     process_init();
 
+    current->next_file_info = parent->next_file_info;
+
+    void *old_file_info_table = current->file_info_table;
+    current->file_info_table = (struct file_info **)realloc(current->file_info_table, sizeof(struct file_info *) * current->next_file_info);
+    if (current->file_info_table == NULL && current->next_file_info != 0) {
+        current->file_info_table = old_file_info_table;
+        goto error;
+    }
+
+    for (int i = 0; i < parent->next_file_info; i++) {
+        if (parent->file_info_table[i] == NULL) {
+            current->file_info_table[i] = NULL;
+            continue;
+        }
+
+        current->file_info_table[i] = (struct file_info *)malloc(sizeof(struct file_info));
+        if (current->file_info_table[i] == NULL)
+            goto error;
+
+        lock_acquire(&filesys_lock);
+        struct file *file_duplicated = file_duplicate(parent->file_info_table[i]->file);
+        lock_release(&filesys_lock);
+        if (file_duplicated == NULL) {
+            goto error;
+        }
+        current->file_info_table[i]->file = file_duplicated;
+        current->file_info_table[i]->fd_cnt = parent->file_info_table[i]->fd_cnt;
+    }
+
     current->next_fd = parent->next_fd;
     void *old_fd_table = current->fd_table;
     current->fd_table = (struct file **)realloc(current->fd_table, sizeof(struct file *) * current->next_fd);
@@ -227,16 +258,16 @@ __do_fork(void *aux) {
             continue;
         }
 
-        struct file *file_duplicated = file_duplicate(parent->fd_table[i]);
-        if (file_duplicated == NULL) {
-            current->next_fd = i;
-            goto error;
+        for (int j = 0; j < parent->next_file_info; j++) {
+            if (parent->file_info_table[j] != NULL && parent->fd_table[i] == parent->file_info_table[j]->file) {
+                current->fd_table[i] = current->file_info_table[j]->file;
+                break;
+            }
         }
-        current->fd_table[i] = file_duplicated;
     }
 
     parent->child_do_fork_success = true;
-    sema_up(&(current->load_sema));
+    sema_up(&(current->fork_sema));
 
     current->tf.R.rax = 0;  // return 0 for child
 
@@ -245,7 +276,7 @@ __do_fork(void *aux) {
         do_iret(&(current->tf));
 error:
     parent->child_do_fork_success = false;
-    sema_up(&current->load_sema);
+    sema_up(&current->fork_sema);
     current->exit_status = -1;
     thread_exit();
 }
@@ -361,14 +392,17 @@ int process_wait(tid_t child_tid) {
         sema_down(&(child->exit_sema));
     }
 
+    lock_acquire(&dead_lock);
     for (tmp = list_begin(&curr->dead_childs); tmp != list_end(&curr->dead_childs); tmp = list_next(tmp)) {
         tmp_info = list_entry(tmp, struct dead_child, dead_elem);
         if (tmp_info->tid == child_tid) {
             status = tmp_info->exit_status;
             tmp_info->exit_status = -1;
+            lock_release(&dead_lock);
             return status;
         }
     }
+    lock_release(&dead_lock);
 
     if (child == NULL) {
         // there is no such child_tid
@@ -388,13 +422,17 @@ void process_exit(void) {
     curr->process_exit = true;
     struct thread *parent = curr->parent;
 
+    lock_acquire(&dead_lock);
     while (!list_empty(&(curr->dead_childs))) {
         struct dead_child *tmp = list_entry(list_pop_front(&(curr->dead_childs)), struct dead_child, dead_elem);
         free(tmp);
     }
+    lock_release(&dead_lock);
 
     if (curr->file_executing != NULL) {
+        lock_acquire(&filesys_lock);
         file_close(curr->file_executing);
+        lock_release(&filesys_lock);
     }
 
     if (curr->fd_table != NULL) {
@@ -404,13 +442,23 @@ void process_exit(void) {
         free(curr->fd_table);
     }
 
+    if (curr->file_info_table != NULL) {
+        for (int j = 0; j < curr->next_file_info; j++) {
+            if (curr->file_info_table[j] != NULL)
+                free(curr->file_info_table[j]);
+        }
+        free(curr->file_info_table);
+    }
+
     if (curr->is_user_thread == true)
         printf("%s: exit(%d)\n", curr->name, curr->exit_status);
 
+    lock_acquire(&dead_lock);
     struct dead_child *dead = (struct dead_child *)malloc(sizeof(struct dead_child));
     dead->tid = curr->tid;
     dead->exit_status = curr->exit_status;
     list_push_back(&(curr->parent->dead_childs), &(dead->dead_elem));
+    lock_release(&dead_lock);
 
     list_remove(&(curr->child_elem));
 
@@ -457,12 +505,51 @@ void process_activate(struct thread *next) {
 
 int process_add_file(struct file *f) {
     struct thread *curr = thread_current();
-    for (int i = 2; i < curr->next_fd; i++) {
+
+    /* Step 1. constructing file_info_table */
+    // generate file_info element
+    struct file_info *tmp_info = (struct file_info *)malloc(sizeof(struct file_info));
+    if (tmp_info == NULL)
+        return -1;
+    tmp_info->file = f;
+    tmp_info->fd_cnt = 1;
+
+    bool is_full = true;
+    // finding empty space
+    for (int i = 0; i < curr->next_file_info; i++) {
+        if (curr->file_info_table[i] == NULL) {
+            curr->file_info_table[i] = tmp_info;
+            is_full = false;
+            break;
+        }
+    }
+
+    // no empty space
+    if (is_full) {
+        // allocate memory for file_info_table
+        curr->next_file_info++;
+        void *old_file_info_table = curr->file_info_table;
+        curr->file_info_table = (struct file_info **)realloc(curr->file_info_table, sizeof(struct file_info *) * curr->next_file_info);
+        if (curr->file_info_table == NULL) {
+            curr->file_info_table = old_file_info_table;
+            free(tmp_info);
+            return -1;
+        }
+
+        // append
+        curr->file_info_table[curr->next_file_info - 1] = tmp_info;
+    }
+
+    /* Step 2. constructing fd_table */
+    // finding empty place
+    for (int i = 0; i < curr->next_fd; i++) {
         if (curr->fd_table[i] == NULL) {
             curr->fd_table[i] = f;
             return i;
         }
     }
+
+    // there is no empty place
     curr->next_fd++;
     void *old_fd_table = curr->fd_table;
     curr->fd_table = (struct file **)realloc(curr->fd_table, curr->next_fd * sizeof(struct file *));
@@ -470,6 +557,8 @@ int process_add_file(struct file *f) {
         curr->fd_table = old_fd_table;
         return -1;
     }
+
+    // append
     curr->fd_table[curr->next_fd - 1] = f;
     return curr->next_fd - 1;
 }
@@ -493,19 +582,31 @@ bool process_close_file(int fd) {
         return false;
     }
 
+    if (f == (struct file *)&stdin_file || f == (struct file *)&stdout_file) {
+        curr->fd_table[fd] = NULL;
+        return true;
+    }
     // determine whether we should close the file
-    int fd_tmp;
+
+    int tmp;
     bool is_solo = true;
-    for (fd_tmp = 0; fd_tmp < curr->next_fd; ++fd_tmp) {
-        struct file *f_tmp = process_get_file(fd_tmp);
-        if (f == f_tmp && fd != fd_tmp) {
-            is_solo = false;
+    for (tmp = 0; tmp < curr->next_file_info; ++tmp) {
+        if (curr->file_info_table[tmp] != NULL && f == curr->file_info_table[tmp]->file) {
+            if (curr->file_info_table[tmp]->fd_cnt > 1) {
+                is_solo = false;
+                curr->file_info_table[tmp]->fd_cnt--;
+            } else {
+                free(curr->file_info_table[tmp]);
+                curr->file_info_table[tmp] = NULL;
+            }
             break;
         }
     }
+
     curr->fd_table[fd] = NULL;
 
-    if (f != (struct file *)&stdin_file && f != (struct file *)&stdout_file && is_solo == true) {
+    // if it's the only fd that points to file, close
+    if (is_solo == true) {
         lock_acquire(&filesys_lock);
         file_close(f);
         lock_release(&filesys_lock);

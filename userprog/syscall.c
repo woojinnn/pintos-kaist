@@ -178,9 +178,7 @@ void sys_exit(int status) {
 tid_t sys_fork(const char *thread_name, struct intr_frame *f) {
     check_bad_ptr(thread_name);
 
-    lock_acquire(&filesys_lock);
     tid_t fork_result = process_fork(thread_name, f);
-    lock_release(&filesys_lock);
 
     return fork_result;
 }
@@ -197,7 +195,6 @@ int sys_exec(const char *cmd_line) {
 
     // create child process
     process_exec(cmd_copy);
-    // sys_exit(-1);
     return -1;
 }
 
@@ -258,11 +255,12 @@ int sys_filesize(int fd) {
 int sys_read(int fd, void *buffer, unsigned size) {
     struct thread *curr = thread_current();
     check_bad_ptr(buffer);
-    lock_acquire(&filesys_lock);
 
     int read;
 
     void *f = process_get_file(fd);
+    
+    lock_acquire(&filesys_lock);
     if (f == NULL) {
         lock_release(&filesys_lock);
         sys_exit(-1);
@@ -309,8 +307,6 @@ int sys_write(int fd, const void *buffer, unsigned size) {
         lock_release(&filesys_lock);
         sys_exit(-1);
     }
-
-    void *inode = file_get_inode(f);  // for debugging
 
     int written = (int)file_write(f, buffer, (off_t)size);
     lock_release(&filesys_lock);
