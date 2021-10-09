@@ -223,16 +223,7 @@ __do_fork(void *aux) {
     if (current->files == NULL) {
         goto error;
     }
-
-    // for (int j = 0; j < parent->next_file; j++) {
-    //     struct file *file_duplicated = file_duplicate(parent->files[j]);
-    //     if (file_duplicated == NULL) {
-    //         current->next_file = j;
-    //         goto error;
-    //     }
-    //     current->files[j] = file_duplicated;
-    // }
-
+    
     for (int i = 0; i < parent->next_fd; i++) {
         struct file *parent_file = parent->fd_table[i];
         if (parent_file == NULL) {
