@@ -378,17 +378,17 @@ int process_wait(tid_t child_tid) {
     struct dead_child *tmp_info;
     int status;
 
-    // lock_acquire(&dead_lock);
+    lock_acquire(&dead_lock);
     for (tmp = list_begin(&curr->dead_childs); tmp != list_end(&curr->dead_childs); tmp = list_next(tmp)) {
         tmp_info = list_entry(tmp, struct dead_child, dead_elem);
         if (tmp_info->tid == child_tid) {
             status = tmp_info->exit_status;
             tmp_info->exit_status = -1;
-            // lock_release(&dead_lock);
+            lock_release(&dead_lock);
             return status;
         }
     }
-    // lock_release(&dead_lock);
+    lock_release(&dead_lock);
 
     if (child == NULL) {
         // there is no such child_tid
@@ -410,12 +410,12 @@ void process_exit(void) {
     curr->process_exit = true;
     struct thread *parent = curr->parent;
 
-    // lock_acquire(&dead_lock);
+    lock_acquire(&dead_lock);
     while (!list_empty(&(curr->dead_childs))) {
         struct dead_child *tmp = list_entry(list_pop_front(&(curr->dead_childs)), struct dead_child, dead_elem);
         free(tmp);
     }
-    // lock_release(&dead_lock);
+    lock_release(&dead_lock);
 
     if (curr->file_executing != NULL) {
         file_close(curr->file_executing);
@@ -438,9 +438,9 @@ void process_exit(void) {
     if (dead != NULL) {
         dead->tid = curr->tid;
         dead->exit_status = curr->exit_status;
-        // lock_acquire(&dead_lock);
+        lock_acquire(&dead_lock);
         list_push_front(&(parent->dead_childs), &(dead->dead_elem));
-        // lock_release(&dead_lock);
+        lock_release(&dead_lock);
     }
 
     lock_acquire(&process_lock);
