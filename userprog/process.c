@@ -78,6 +78,7 @@ tid_t process_create_initd(const char *file_name) {
 
     struct thread *child = get_child_process(tid);
     child->is_user_thread = true;
+    sema_down(&(child->load_sema));
 
     if (tid == TID_ERROR)
         palloc_free_page(fn_copy);
@@ -210,12 +211,31 @@ __do_fork(void *aux) {
     process_init();
 
     current->next_fd = parent->next_fd;
+    current->next_file = parent->next_file;
     void *old_fd_table = current->fd_table;
     current->fd_table = (struct file **)realloc(current->fd_table, sizeof(struct file *) * current->next_fd);
     if (current->fd_table == NULL) {
         current->fd_table = old_fd_table;
         goto error;
     }
+    void *old_files = current->files;
+    current->files = (struct file **)realloc(current->files, current->next_file * sizeof(struct file *));
+    if (current->next_file != 0 && current->files == NULL) {
+        current->files = old_files;
+        goto error;
+    }
+
+    for (int j = 0; j < parent->next_file; j++) {
+        // lock_acquire(&filesys_lock);
+        struct file *file_duplicated = file_duplicate(parent->files[j]);
+        // lock_release(&filesys_lock);
+        if (file_duplicated == NULL) {
+            current->next_file = j;
+            goto error;
+        }
+        current->files[j] = file_duplicated;
+    }
+
     for (int i = 0; i < parent->next_fd; i++) {
         if (parent->fd_table[i] == NULL) {
             current->fd_table[i] = NULL;
@@ -227,12 +247,12 @@ __do_fork(void *aux) {
             continue;
         }
 
-        struct file *file_duplicated = file_duplicate(parent->fd_table[i]);
-        if (file_duplicated == NULL) {
-            current->next_fd = i;
-            goto error;
+        for (int k = 0; k < parent->next_file; k++) {
+            if (parent->fd_table[i] == parent->files[k]) {
+                current->fd_table[i] = current->files[k];
+                break;
+            }
         }
-        current->fd_table[i] = file_duplicated;
     }
 
     parent->child_do_fork_success = true;
@@ -398,8 +418,13 @@ void process_exit(void) {
     }
 
     if (curr->fd_table != NULL) {
-        for (int i = 0; i < curr->next_fd; ++i) {
-            process_close_file(i);
+        if (curr->files != NULL) {
+            for (int i = 0; i < curr->next_file; ++i) {
+                lock_acquire(&filesys_lock);
+                file_close(curr->files[i]);
+                lock_release(&filesys_lock);
+            }
+            free(curr->files);
         }
         free(curr->fd_table);
     }
@@ -457,7 +482,16 @@ void process_activate(struct thread *next) {
 
 int process_add_file(struct file *f) {
     struct thread *curr = thread_current();
-    for (int i = 2; i < curr->next_fd; i++) {
+    curr->next_file++;
+    void *old_files = curr->files;
+    curr->files = (struct file **)realloc(curr->files, curr->next_file * sizeof(struct file *));
+    if (curr->files == NULL) {
+        curr->files = old_files;
+        return -1;
+    }
+    curr->files[curr->next_file - 1] = f;
+
+    for (int i = 0; i < curr->next_fd; i++) {
         if (curr->fd_table[i] == NULL) {
             curr->fd_table[i] = f;
             return i;
@@ -493,23 +527,7 @@ bool process_close_file(int fd) {
         return false;
     }
 
-    // determine whether we should close the file
-    int fd_tmp;
-    bool is_solo = true;
-    for (fd_tmp = 0; fd_tmp < curr->next_fd; ++fd_tmp) {
-        struct file *f_tmp = process_get_file(fd_tmp);
-        if (f == f_tmp && fd != fd_tmp) {
-            is_solo = false;
-            break;
-        }
-    }
     curr->fd_table[fd] = NULL;
-
-    if (f != (struct file *)&stdin_file && f != (struct file *)&stdout_file && is_solo == true) {
-        lock_acquire(&filesys_lock);
-        file_close(f);
-        lock_release(&filesys_lock);
-    }
 
     return true;
 }
