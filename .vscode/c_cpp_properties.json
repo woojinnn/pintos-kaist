@@ -5,7 +5,8 @@
             "defines": [
                 "USERPROG",
                 "FILESYS",
-                "EXTRA2"
+                "EXTRA2",
+                "VM"
             ],
             "includePath": [
                 "${workspaceFolder}/**"

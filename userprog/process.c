@@ -747,6 +747,20 @@ validate_segment(const struct Phdr *phdr, struct file *file) {
     return true;
 }
 
+struct thread *get_child_process(tid_t pid) {
+    struct thread *curr = thread_current();
+    lock_acquire(&process_lock);
+    for (struct list_elem *tmp = list_begin(&curr->childs); tmp != list_end(&curr->childs); tmp = list_next(tmp)) {
+        struct thread *child = list_entry(tmp, struct thread, child_elem);
+        if (child->tid == pid) {
+            lock_release(&process_lock);
+            return child;
+        }
+    }
+    lock_release(&process_lock);
+    return NULL;
+}
+
 #ifndef VM
 /* Codes of this block will be ONLY USED DURING project 2.
  * If you want to implement the function for whole project 2, implement it
@@ -826,20 +840,6 @@ setup_stack(struct intr_frame *if_) {
             palloc_free_page(kpage);
     }
     return success;
-}
-
-struct thread *get_child_process(tid_t pid) {
-    struct thread *curr = thread_current();
-    lock_acquire(&process_lock);
-    for (struct list_elem *tmp = list_begin(&curr->childs); tmp != list_end(&curr->childs); tmp = list_next(tmp)) {
-        struct thread *child = list_entry(tmp, struct thread, child_elem);
-        if (child->tid == pid) {
-            lock_release(&process_lock);
-            return child;
-        }
-    }
-    lock_release(&process_lock);
-    return NULL;
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel

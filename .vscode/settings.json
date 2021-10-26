@@ -18,6 +18,7 @@
         "stdio.h": "c",
         "loader.h": "c",
         "syscall.h": "c",
-        "gdt.h": "c"
+        "gdt.h": "c",
+        "vm.h": "c"
     }
 }
