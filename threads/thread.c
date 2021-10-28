@@ -351,7 +351,7 @@ tid_t thread_create(const char *name, int priority,
     lock_acquire(&process_lock);
     list_push_back(&(thread_current()->childs), &(t->child_elem));
     lock_release(&process_lock);
-    
+
     t->is_user_thread = false;
     // END USERPROG
 
@@ -680,6 +680,10 @@ init_thread(struct thread *t, const char *name, int priority) {
 
     list_init(&(t->dead_childs));
     // end USERPROG
+
+    // VM
+    supplemental_page_table_init(&(t->spt));
+    // end VM
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should

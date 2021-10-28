@@ -223,7 +223,7 @@ __do_fork(void *aux) {
     if (current->files == NULL) {
         goto error;
     }
-    
+
     for (int i = 0; i < parent->next_fd; i++) {
         struct file *parent_file = parent->fd_table[i];
         if (parent_file == NULL) {
@@ -923,6 +923,13 @@ setup_stack(struct intr_frame *if_) {
 	 * TODO: If success, set the rsp accordingly.
 	 * TODO: You should mark the page is stack. */
     /* TODO: Your code goes here */
+    success = vm_alloc_page(VM_UNINIT, stack_bottom, true);
+    if (success) {
+        struct page *pg = spt_find_page(&thread_current()->spt, stack_bottom);
+        pg->is_stack = true;
+
+        if_->rsp = (uintptr_t)USER_STACK;
+    }
 
     return success;
 }

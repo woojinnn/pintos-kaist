@@ -67,10 +67,34 @@ void syscall_init(void) {
     lock_init(&filesys_lock);
 }
 
-void validate_usr_addr(void *addr) {
+struct page *validate_usr_addr(void *addr) {
     if (is_kernel_vaddr(addr)) {
         sys_exit(-1);
         NOT_REACHED();
+    }
+    return spt_find_page(&thread_current()->spt, addr);
+}
+
+void validate_buffer(void *buffer, size_t size, bool to_write) {
+    void *start_addr = pg_round_down(buffer);
+    void *end_addr = pg_round_down(buffer + size);
+
+    for (void *addr = start_addr; addr < end_addr; addr += PGSIZE) {
+        struct page *pg = validate_usr_addr(addr);
+        if (pg == NULL) {
+            sys_exit(-1);
+        }
+
+        if (pg->writable == false && to_write == true) {
+            sys_exit(-1);
+        }
+    }
+}
+
+void validate_string(const void *str) {
+    struct page *pg = validate_usr_addr(str);
+    if (pg == NULL) {
+        sys_exit(-1);
     }
 }
 
