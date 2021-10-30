@@ -19,6 +19,7 @@
         "loader.h": "c",
         "syscall.h": "c",
         "gdt.h": "c",
-        "vm.h": "c"
+        "vm.h": "c",
+        "malloc.h": "c"
     }
 }

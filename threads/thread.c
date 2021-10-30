@@ -682,7 +682,6 @@ init_thread(struct thread *t, const char *name, int priority) {
     // end USERPROG
 
     // VM
-    supplemental_page_table_init(&(t->spt));
     // end VM
 }
 

@@ -56,25 +56,26 @@ bool vm_alloc_page_with_initializer(enum vm_type type, void *upage, bool writabl
         if (pg == NULL)
             goto err;
 
+        void *va_rounded = pg_round_down(upage);
         switch (type) {
             case VM_ANON:
-                uninit_new(pg, upage, init, type, aux, anon_initializer);
+                uninit_new(pg, va_rounded, init, type, aux, anon_initializer);
                 break;
             case VM_FILE:
-                uninit_new(pg, upage, init, type, aux, file_backed_initializer);
-                break;
-            case VM_UNINIT:
-                uninit_new(pg, upage, init, type, aux, NULL);
+                uninit_new(pg, va_rounded, init, type, aux, file_backed_initializer);
                 break;
             default:
+                NOT_REACHED();
                 break;
         }
 
         pg->writable = writable;
-		pg->is_stack = false;
+        pg->is_stack = false;
         /* TODO: Insert the page into the spt. */
         spt_insert_page(spt, pg);
     }
+
+    return true;
 err:
     return false;
 }
@@ -84,8 +85,13 @@ struct page *
 spt_find_page(struct supplemental_page_table *spt, void *va) {
     struct page *page = NULL;
     /* TODO: Fill this function. */
-    struct page *query = (struct page *)pg_round_down(va);
-    struct hash_elem *found = hash_find(&(spt->spt), &(query->page_elem));
+    void *page_addr = pg_round_down(va);
+
+    struct page pg;
+    pg.va = page_addr;
+    struct hash_elem *found = hash_find(&(spt->spt), &(pg.page_elem));
+    if (found == NULL)
+        return NULL;
     page = hash_entry(found, struct page, page_elem);
 
     return page;
@@ -137,6 +143,16 @@ static struct frame *
 vm_get_frame(void) {
     struct frame *frame = NULL;
     /* TODO: Fill this function. */
+    void *pg_ptr = palloc_get_page(PAL_USER);
+    if (pg_ptr == NULL) {
+        // evict
+        // You don't need to handle swap out for now in case of page allocation failure. Just mark those case with PANIC ("todo") for now.
+        PANIC("TODO");
+    }
+
+    frame = (struct frame *)malloc(sizeof(struct frame));
+    frame->kva = pg_ptr;
+    frame->page = NULL;
 
     ASSERT(frame != NULL);
     ASSERT(frame->page == NULL);
@@ -154,13 +170,19 @@ vm_handle_wp(struct page *page UNUSED) {
 }
 
 /* Return true on success */
-bool vm_try_handle_fault(struct intr_frame *f UNUSED, void *addr UNUSED,
-                         bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
-    struct supplemental_page_table *spt UNUSED = &thread_current()->spt;
+bool vm_try_handle_fault(struct intr_frame *f, void *addr,
+                         bool user, bool write, bool not_present) {
+    struct supplemental_page_table *spt = &thread_current()->spt;
     struct page *page = NULL;
     /* TODO: Validate the fault */
     /* TODO: Your code goes here */
+    if (not_present == false)
+        return false;
 
+    page = spt_find_page(spt, addr);
+    if (page == NULL) {
+        return false;
+    }
     return vm_do_claim_page(page);
 }
 
@@ -172,9 +194,14 @@ void vm_dealloc_page(struct page *page) {
 }
 
 /* Claim the page that allocate on VA. */
-bool vm_claim_page(void *va UNUSED) {
+bool vm_claim_page(void *va) {
     struct page *page = NULL;
     /* TODO: Fill this function */
+    page = spt_find_page(&thread_current()->spt, va);
+    if (page == NULL) {
+        // there is no such page to accomodate va
+        return false;
+    }
 
     return vm_do_claim_page(page);
 }
@@ -189,6 +216,11 @@ vm_do_claim_page(struct page *page) {
     page->frame = frame;
 
     /* TODO: Insert page table entry to map page's VA to frame's PA. */
+    struct thread *t = thread_current();
+    if (pml4_get_page(t->pml4, page->va) != NULL)
+        return false;
+    if (pml4_set_page(t->pml4, page->va, frame->kva, page->writable) == false)
+        return false;
 
     return swap_in(page, frame->kva);
 }

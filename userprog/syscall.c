@@ -11,7 +11,7 @@
 #include "userprog/gdt.h"
 
 /* helper function for syscall_handler */
-static void validate_usr_addr(void *addr);
+static struct page *validate_usr_addr(void *addr);
 static void get_argument(uintptr_t *rsp, uintptr_t *arg, int count);
 
 /* System calls */
@@ -76,6 +76,9 @@ struct page *validate_usr_addr(void *addr) {
 }
 
 void validate_buffer(void *buffer, size_t size, bool to_write) {
+    if (buffer == NULL)
+        sys_exit(-1);
+
     void *start_addr = pg_round_down(buffer);
     void *end_addr = pg_round_down(buffer + size);
 
@@ -88,13 +91,6 @@ void validate_buffer(void *buffer, size_t size, bool to_write) {
         if (pg->writable == false && to_write == true) {
             sys_exit(-1);
         }
-    }
-}
-
-void validate_string(const void *str) {
-    struct page *pg = validate_usr_addr(str);
-    if (pg == NULL) {
-        sys_exit(-1);
     }
 }
 
@@ -111,7 +107,9 @@ void check_bad_ptr(void *addr) {
     if (addr == NULL)
         sys_exit(-1);
 
-    validate_usr_addr(addr);
+    if (validate_usr_addr(addr) == NULL)
+        sys_exit(-1);
+
     if (pml4_get_page(thread_current()->pml4, addr) == NULL)
         sys_exit(-1);
 }
@@ -281,7 +279,7 @@ int sys_filesize(int fd) {
 
 int sys_read(int fd, void *buffer, unsigned size) {
     struct thread *curr = thread_current();
-    check_bad_ptr(buffer);
+    validate_buffer(buffer, size, false);
     lock_acquire(&filesys_lock);
 
     int read;
@@ -312,7 +310,7 @@ int sys_read(int fd, void *buffer, unsigned size) {
 }
 
 int sys_write(int fd, const void *buffer, unsigned size) {
-    check_bad_ptr(buffer);
+    validate_buffer(buffer, size, true);
     lock_acquire(&filesys_lock);
 
     void *f = process_get_file(fd);
