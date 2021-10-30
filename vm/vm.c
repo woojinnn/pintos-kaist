@@ -57,7 +57,7 @@ bool vm_alloc_page_with_initializer(enum vm_type type, void *upage, bool writabl
             goto err;
 
         void *va_rounded = pg_round_down(upage);
-        switch (type) {
+        switch (VM_TYPE(type)) {
             case VM_ANON:
                 uninit_new(pg, va_rounded, init, type, aux, anon_initializer);
                 break;
@@ -73,9 +73,8 @@ bool vm_alloc_page_with_initializer(enum vm_type type, void *upage, bool writabl
         pg->is_stack = false;
         /* TODO: Insert the page into the spt. */
         spt_insert_page(spt, pg);
+        return true;
     }
-
-    return true;
 err:
     return false;
 }
@@ -217,8 +216,8 @@ vm_do_claim_page(struct page *page) {
 
     /* TODO: Insert page table entry to map page's VA to frame's PA. */
     struct thread *t = thread_current();
-    if (pml4_get_page(t->pml4, page->va) != NULL)
-        return false;
+    // if (pml4_get_page(t->pml4, page->va) != NULL)
+    //     return false;
     if (pml4_set_page(t->pml4, page->va, frame->kva, page->writable) == false)
         return false;
 
