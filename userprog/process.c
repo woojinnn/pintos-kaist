@@ -441,6 +441,14 @@ void process_exit(void) {
     list_remove(&(curr->child_elem));
     lock_release(&process_lock);
 
+    while(!list_empty(&curr->mmap_list)) {
+        struct list_elem *elem = list_pop_front(&(curr->mmap_list));
+        struct file_page *f_page = list_entry(elem, struct file_page, file_elem);
+        lock_acquire(&process_lock);
+        do_munmap(f_page->start);
+        lock_release(&process_lock);
+    }
+
     process_cleanup();
     sema_up(&(curr->exit_sema));
 }

@@ -423,7 +423,16 @@ static void *sys_mmap(void *addr, size_t length, int writable, int fd, off_t off
     if (addr == NULL)
         return NULL;
 
-    if (length == 0)
+    if (offset % PGSIZE != 0)
+        return NULL;
+
+    if (is_kernel_vaddr(addr))
+        return NULL;
+
+    if (is_kernel_vaddr((size_t)addr + length))
+        return NULL;
+
+    if ((long)length <= 0)
         return NULL;
 
     if (addr != pg_round_down(addr))
@@ -440,14 +449,43 @@ static void *sys_mmap(void *addr, size_t length, int writable, int fd, off_t off
     }
 
     void *file = process_get_file(fd);
+    if (file == NULL)
+        return NULL;
+
+    file += 0x8000000000;
+
     if ((file == &stdin_file) || (file == &stdout_file))
         return NULL;
 
-    if (file_length(file) == 0)
+    off_t file_len = file_length(file);
+    if (file_len == 0)
         return NULL;
 
-    do_mmap(addr, length, writable, file, offset);
+    if (file_len <= offset)
+        return NULL;
+
+    file_len = file_len < length ? file_len : length;
+    return do_mmap(addr, (size_t)file_len, writable, file, offset);
 }
+
 static void sys_munmap(void *addr) {
+    if (addr == NULL)
+        return;
+
+    if (is_kernel_vaddr(addr))
+        return;
+
+    struct thread *curr_thread = thread_current();
+    struct page *page = spt_find_page(&(curr_thread->spt), addr);
+    if (page == NULL)
+        return;
+
+    if (page->operations->type != VM_FILE)
+        return;
+
+    if (addr != page->file.start)
+        return;
+
     do_munmap(addr);
+    return;
 }

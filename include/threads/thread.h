@@ -140,7 +140,7 @@ struct thread {
 #endif
     // VM
     uintptr_t user_rsp;
-    struct list mmap_files;
+    struct list mmap_list;
     // END VM
 
     /* mlfqs */

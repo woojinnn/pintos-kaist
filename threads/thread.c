@@ -683,7 +683,7 @@ init_thread(struct thread *t, const char *name, int priority) {
 
     // VM
     t->user_rsp = 0;
-    list_init(&(t->mmap_files));
+    list_init(&(t->mmap_list));
     // end VM
 }
 
