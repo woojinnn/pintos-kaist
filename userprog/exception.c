@@ -140,6 +140,9 @@ page_fault(struct intr_frame *f) {
     user = (f->error_code & PF_U) != 0;
 
 #ifdef VM
+    if (user)
+        thread_current()->user_rsp = f->rsp;
+
     /* For project 3 and later. */
     if (vm_try_handle_fault(f, fault_addr, user, write, not_present))
         return;
@@ -150,7 +153,7 @@ page_fault(struct intr_frame *f) {
 
     if (user) {
         thread_current()->exit_status = -1;
-        f->cs = SEL_UCSEG;
+        thread_exit();
     }
 
     // /* If the fault is true fault, show info and exit. */

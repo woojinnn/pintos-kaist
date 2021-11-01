@@ -2,57 +2,74 @@
 
 #include "vm/vm.h"
 
-static bool file_backed_swap_in (struct page *page, void *kva);
-static bool file_backed_swap_out (struct page *page);
-static void file_backed_destroy (struct page *page);
+static bool file_backed_swap_in(struct page *page, void *kva);
+static bool file_backed_swap_out(struct page *page);
+static void file_backed_destroy(struct page *page);
 
 /* DO NOT MODIFY this struct */
 static const struct page_operations file_ops = {
-	.swap_in = file_backed_swap_in,
-	.swap_out = file_backed_swap_out,
-	.destroy = file_backed_destroy,
-	.type = VM_FILE,
+    .swap_in = file_backed_swap_in,
+    .swap_out = file_backed_swap_out,
+    .destroy = file_backed_destroy,
+    .type = VM_FILE,
 };
 
 /* The initializer of file vm */
-void
-vm_file_init (void) {
+void vm_file_init(void) {
 }
 
 /* Initialize the file backed page */
-bool
-file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
-	/* Set up the handler */
-	page->operations = &file_ops;
+bool file_backed_initializer(struct page *page, enum vm_type type, void *kva) {
+    /* Set up the handler */
+    page->operations = &file_ops;
 
-	struct file_page *file_page = &page->file;
+    struct file_page *file_page = &page->file;
 }
 
 /* Swap in the page by read contents from the file. */
 static bool
-file_backed_swap_in (struct page *page, void *kva) {
-	struct file_page *file_page UNUSED = &page->file;
+file_backed_swap_in(struct page *page, void *kva) {
+    struct file_page *file_page UNUSED = &page->file;
 }
 
 /* Swap out the page by writeback contents to the file. */
 static bool
-file_backed_swap_out (struct page *page) {
-	struct file_page *file_page UNUSED = &page->file;
+file_backed_swap_out(struct page *page) {
+    struct file_page *file_page UNUSED = &page->file;
 }
 
 /* Destory the file backed page. PAGE will be freed by the caller. */
 static void
-file_backed_destroy (struct page *page) {
-	struct file_page *file_page UNUSED = &page->file;
+file_backed_destroy(struct page *page) {
+    struct file_page *file_page UNUSED = &page->file;
 }
 
 /* Do the mmap */
 void *
-do_mmap (void *addr, size_t length, int writable,
-		struct file *file, off_t offset) {
+do_mmap(void *addr, size_t length, int writable,
+        struct file *file, off_t offset) {
+    struct file *reopen_file = file_reopen(file);
+    if(reopen_file = NULL){
+        return NULL;
+    }
+
+    struct mmap_file *mmap_file = (struct mmap_file *)malloc(sizeof(struct mmap_file));
+    if(mmap_file = NULL){
+        return NULL;
+    }
+    mmap_file->file = reopen_file;
+    list_push_back(&(thread_current()->mmap_files), &(mmap_file->elem));
+
+    size_t read_bytes = length; 
+    size_t zero_bytes = PGSIZE - length % PGSIZE;
+    off_t dynamic_ofs = offset;
+    while(read_bytes > 0 || zero_bytes > 0) {
+
+    }
+
+
 }
 
 /* Do the munmap */
-void
-do_munmap (void *addr) {
+void do_munmap(void *addr) {
 }

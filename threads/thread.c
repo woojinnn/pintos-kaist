@@ -682,6 +682,8 @@ init_thread(struct thread *t, const char *name, int priority) {
     // end USERPROG
 
     // VM
+    t->user_rsp = 0;
+    list_init(&(t->mmap_files));
     // end VM
 }
 
@@ -830,7 +832,10 @@ schedule(void) {
 
 #ifdef USERPROG
     /* Activate the new address space. */
+    // VM
+    // end VM
     process_activate(next);
+
 #endif
 
     if (curr != next) {

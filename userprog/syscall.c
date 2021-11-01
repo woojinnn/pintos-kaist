@@ -30,6 +30,8 @@ static void sys_seek(int fd, unsigned position);
 static unsigned sys_tell(int fd);
 static void sys_close(int fd);
 static int sys_dup2(int oldfd, int newfd);
+static void *sys_mmap(void *addr, size_t length, int writable, int fd, off_t offset);
+static void sys_munmap(void *addr);
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
@@ -82,7 +84,8 @@ void validate_buffer(void *buffer, size_t size, bool to_write) {
     void *start_addr = pg_round_down(buffer);
     void *end_addr = pg_round_down(buffer + size);
 
-    for (void *addr = start_addr; addr < end_addr; addr += PGSIZE) {
+    ASSERT(start_addr <= end_addr);
+    for (void *addr = end_addr; addr >= start_addr; addr -= PGSIZE) {
         struct page *pg = validate_usr_addr(addr);
         if (pg == NULL) {
             sys_exit(-1);
@@ -91,6 +94,9 @@ void validate_buffer(void *buffer, size_t size, bool to_write) {
         if (pg->writable == false && to_write == true) {
             sys_exit(-1);
         }
+
+        // if (pg->is_stack)
+        //     sys_exit(-1);
     }
 }
 
@@ -117,7 +123,8 @@ void check_bad_ptr(void *addr) {
 /* The main system call interface */
 void syscall_handler(struct intr_frame *f) {
     // TODO: Your implementation goes here.
-    uint64_t args[3] = {f->R.rdi, f->R.rsi, f->R.rdx};
+    uint64_t args[5] = {f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8};
+    thread_current()->user_rsp = f->rsp;
 
     switch ((int)(f->R.rax)) {
         case SYS_HALT:
@@ -180,6 +187,14 @@ void syscall_handler(struct intr_frame *f) {
             SET_RAX(f, sys_dup2((int)args[0], (int)args[1]));
             break;
 
+        case SYS_MMAP:
+            SET_RAX(f, sys_mmap((void *)args[0], (size_t)args[1], (int)args[2], (int)args[3], (off_t)args[4]));
+            break;
+
+        case SYS_MUNMAP:
+            sys_munmap((void *)args[0]);
+            break;
+
         default:
             thread_exit();
     }
@@ -214,12 +229,12 @@ int sys_exec(const char *cmd_line) {
     cmd_copy = palloc_get_page(0);
     if (cmd_copy == NULL)
         return -1;
-    cmd_copy += 0x8000000000;
+    // cmd_copy += 0x8000000000;
     strlcpy(cmd_copy, cmd_line, PGSIZE);
 
     // create child process
     process_exec(cmd_copy);
-    // sys_exit(-1);
+    sys_exit(-1);
     return -1;
 }
 
@@ -279,7 +294,7 @@ int sys_filesize(int fd) {
 
 int sys_read(int fd, void *buffer, unsigned size) {
     struct thread *curr = thread_current();
-    validate_buffer(buffer, size, false);
+    validate_buffer(buffer, size, true);
     lock_acquire(&filesys_lock);
 
     int read;
@@ -310,7 +325,7 @@ int sys_read(int fd, void *buffer, unsigned size) {
 }
 
 int sys_write(int fd, const void *buffer, unsigned size) {
-    validate_buffer(buffer, size, true);
+    validate_buffer(buffer, size, false);
     lock_acquire(&filesys_lock);
 
     void *f = process_get_file(fd);
@@ -402,4 +417,37 @@ int sys_dup2(int oldfd, int newfd) {
     current->fd_table[newfd] = current->fd_table[oldfd];
 
     return newfd;
+}
+
+static void *sys_mmap(void *addr, size_t length, int writable, int fd, off_t offset) {
+    if (addr == NULL)
+        return NULL;
+
+    if (length == 0)
+        return NULL;
+
+    if (addr != pg_round_down(addr))
+        return NULL;
+
+    void *start_addr = pg_round_down(addr);
+    void *end_addr = pg_round_down(addr + length);
+    ASSERT(start_addr <= end_addr);
+    for (void *addr = end_addr; addr >= start_addr; addr -= PGSIZE) {
+        struct page *pg = validate_usr_addr(addr);
+        if (pg != NULL) {
+            return NULL;
+        }
+    }
+
+    void *file = process_get_file(fd);
+    if ((file == &stdin_file) || (file == &stdout_file))
+        return NULL;
+
+    if (file_length(file) == 0)
+        return NULL;
+
+    do_mmap(addr, length, writable, file, offset);
+}
+static void sys_munmap(void *addr) {
+    do_munmap(addr);
 }

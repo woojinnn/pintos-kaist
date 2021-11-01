@@ -326,7 +326,7 @@ int process_exec(void *f_name) {
 
     /* We first kill the current context */
     process_cleanup();
-
+    supplemental_page_table_init(&thread_current()->spt);
     /* And then load the binary */
     success = load((char *)argv[0], &_if);
 
@@ -864,26 +864,24 @@ install_page(void *upage, void *kpage, bool writable) {
 /* From here, codes will be used after project 3.
  * If you want to implement the function for only project 2, implement it on the
  * upper block. */
-struct load_segment_aux {
-    struct file *file;
-    off_t ofs;
-    size_t page_read_bytes;
-    size_t page_zero_bytes;
-};
 
 static bool
 lazy_load_segment(struct page *page, void *aux) {
     /* TODO: Load the segment from the file */
     /* TODO: This called when the first page fault occurs on address VA. */
     /* TODO: VA is available when calling this function. */
+    bool success = true;
     struct load_segment_aux *info = (struct load_segment_aux *)aux;
-    if (file_read_at(info->file, page->va, info->page_read_bytes, info->ofs) == info->page_read_bytes)
-        return false;
+    if (file_read_at(info->file, page->va, info->page_read_bytes, info->ofs) != (off_t)info->page_read_bytes) {
+        vm_dealloc_page(page);
+        success = false;
+    } else {
+        memset((page->va) + info->page_read_bytes, 0, info->page_zero_bytes);
+    }
 
-    if (memset((page->va) + info->page_read_bytes, 0, info->page_zero_bytes) == (page->va) + info->page_read_bytes)
-        return true;
-
-    return false;
+    file_close(info->file);
+    free(aux);
+    return success;
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
@@ -908,6 +906,7 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
     ASSERT(pg_ofs(upage) == 0);
     ASSERT(ofs % PGSIZE == 0);
 
+    off_t dynamic_ofs = ofs;
     while (read_bytes > 0 || zero_bytes > 0) {
         /* Do calculate how to fill this page.
 		 * We will read PAGE_READ_BYTES bytes from FILE
@@ -917,20 +916,23 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
 
         /* TODO: Set up aux to pass information to the lazy_load_segment. */
         struct load_segment_aux *aux = (struct load_segment_aux *)malloc(sizeof(struct load_segment_aux));
-        aux->file = file;
-        aux->ofs = ofs;
+        aux->file = file_reopen(file);
+        aux->ofs = dynamic_ofs;
         aux->page_read_bytes = page_read_bytes;
         aux->page_zero_bytes = page_zero_bytes;
 
         if (!vm_alloc_page_with_initializer(VM_ANON, upage,
-                                            writable, lazy_load_segment, (void *)aux))
+                                            writable, lazy_load_segment, (void *)aux)) {
+            file_close(aux->file);
+            free(aux);
             return false;
+        }
 
         /* Advance. */
         read_bytes -= page_read_bytes;
         zero_bytes -= page_zero_bytes;
         upage += PGSIZE;
-        ofs += PGSIZE;
+        dynamic_ofs += PGSIZE;
     }
     return true;
 }
@@ -950,7 +952,7 @@ setup_stack(struct intr_frame *if_) {
         struct page *pg = spt_find_page(&thread_current()->spt, stack_bottom);
         pg->is_stack = true;
 
-        if(vm_claim_page(stack_bottom))
+        if (vm_claim_page(stack_bottom))
             if_->rsp = (uintptr_t)USER_STACK;
     }
 

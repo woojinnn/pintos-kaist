@@ -20,6 +20,9 @@
         "syscall.h": "c",
         "gdt.h": "c",
         "vm.h": "c",
-        "malloc.h": "c"
+        "malloc.h": "c",
+        "vaddr.h": "c",
+        "main.h": "c",
+        "syscall-nr.h": "c"
     }
 }
