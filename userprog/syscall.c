@@ -464,8 +464,13 @@ static void *sys_mmap(void *addr, size_t length, int writable, int fd, off_t off
     if (file_len <= offset)
         return NULL;
 
+    struct thread *curr_thraed = thread_current();
     file_len = file_len < length ? file_len : length;
-    return do_mmap(addr, (size_t)file_len, writable, file, offset);
+    lock_acquire(&filesys_lock);
+    void *success = do_mmap(addr, (size_t)file_len, writable, file, offset);
+    lock_release(&filesys_lock);
+
+    return success;
 }
 
 static void sys_munmap(void *addr) {

@@ -9,4 +9,5 @@ tests/threads/priority-change.o: ../../tests/threads/priority-change.c \
  ../../include/threads/synch.h ../../include/vm/vm.h \
  ../../include/threads/palloc.h ../../include/lib/kernel/hash.h \
  ../../include/lib/kernel/list.h ../../include/vm/uninit.h \
- ../../include/vm/anon.h ../../include/vm/file.h
+ ../../include/vm/anon.h ../../include/devices/disk.h \
+ ../../include/lib/inttypes.h ../../include/vm/file.h

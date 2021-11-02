@@ -10,5 +10,6 @@ tests/threads/alarm-wait.o: ../../tests/threads/alarm-wait.c \
  ../../include/vm/vm.h ../../include/threads/palloc.h \
  ../../include/lib/kernel/hash.h ../../include/lib/kernel/list.h \
  ../../include/vm/uninit.h ../../include/vm/anon.h \
+ ../../include/devices/disk.h ../../include/lib/inttypes.h \
  ../../include/vm/file.h ../../include/devices/timer.h \
  ../../include/lib/round.h

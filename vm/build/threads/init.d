@@ -17,9 +17,9 @@ threads/init.o: ../../threads/init.c ../../include/threads/init.h \
  ../../include/threads/synch.h ../../include/vm/vm.h \
  ../../include/lib/kernel/hash.h ../../include/lib/kernel/list.h \
  ../../include/vm/uninit.h ../../include/vm/anon.h \
+ ../../include/devices/disk.h ../../include/lib/inttypes.h \
  ../../include/vm/file.h ../../include/userprog/exception.h \
  ../../include/userprog/gdt.h ../../include/userprog/process.h \
  ../../include/userprog/syscall.h ../../include/userprog/tss.h \
- ../../tests/threads/tests.h ../../include/devices/disk.h \
- ../../include/lib/inttypes.h ../../include/filesys/filesys.h \
+ ../../tests/threads/tests.h ../../include/filesys/filesys.h \
  ../../include/filesys/fsutil.h

@@ -8,4 +8,5 @@ threads/synch.o: ../../threads/synch.c ../../include/threads/synch.h \
  ../../include/filesys/off_t.h ../../include/vm/vm.h \
  ../../include/threads/palloc.h ../../include/lib/kernel/hash.h \
  ../../include/lib/kernel/list.h ../../include/vm/uninit.h \
- ../../include/vm/anon.h ../../include/vm/file.h
+ ../../include/vm/anon.h ../../include/devices/disk.h \
+ ../../include/lib/inttypes.h ../../include/vm/file.h

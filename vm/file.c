@@ -31,13 +31,37 @@ bool file_backed_initializer(struct page *page, enum vm_type type, void *kva) {
 /* Swap in the page by read contents from the file. */
 static bool
 file_backed_swap_in(struct page *page, void *kva) {
-    struct file_page *file_page UNUSED = &page->file;
+    struct file_page *file_page = &page->file;
+
+    lock_acquire(&filesys_lock);
+    off_t size = file_read_at(file_page->file, kva, (off_t)file_page->page_read_bytes, file_page->ofs);
+    lock_release(&filesys_lock);
+
+    if (size != file_page->page_read_bytes)
+        return false;
+
+    memset(kva + file_page->page_read_bytes, 0, file_page->page_zero_bytes);
+
+    return true;
 }
 
 /* Swap out the page by writeback contents to the file. */
 static bool
 file_backed_swap_out(struct page *page) {
-    struct file_page *file_page UNUSED = &page->file;
+    struct file_page *file_page = &page->file;
+    struct thread *curr_thread = thread_current();
+
+    if (pml4_is_dirty(curr_thread->pml4, page->va)) {
+        lock_acquire(&filesys_lock);
+        file_write_at(file_page->file, page->va, file_page->page_read_bytes, file_page->ofs);
+        lock_release(&filesys_lock);
+
+        pml4_set_dirty(curr_thread->pml4, page->va, false);
+    }
+    pml4_clear_page(curr_thread->pml4, page->va);
+    page->frame = NULL;
+
+    return true;
 }
 
 /* Destory the file backed page. PAGE will be freed by the caller. */
@@ -45,6 +69,10 @@ static void
 file_backed_destroy(struct page *page) {
     struct file_page *file_page = &page->file;
     list_remove(&(file_page->file_elem));
+    if (page->frame != NULL) {
+        list_remove(&(page->frame->lru_elem));
+		free(page->frame);
+    }
 }
 
 static bool
@@ -78,20 +106,26 @@ lazy_mmap(struct page *page, void *aux) {
 void *
 do_mmap(void *addr, size_t length, int writable,
         struct file *file, off_t offset) {
-    lock_acquire(&filesys_lock);
     struct file *reopen_file = file_reopen(file);
-    lock_release(&filesys_lock);
+
+    struct thread *curr_thraed = thread_current();
+
     if (reopen_file == NULL) {
         return NULL;
     }
+    curr_thraed = thread_current();
 
-    struct mmap_aux *aux_list[length / PGSIZE + 1];
+    // struct mmap_aux *aux_list[length / PGSIZE + 1];
+    curr_thraed = thread_current();
     int i = 0;
+    curr_thraed = thread_current();
 
     size_t read_bytes = length;
     size_t zero_bytes = PGSIZE - length % PGSIZE;
     off_t dynamic_ofs = offset;
+    curr_thraed = thread_current();
     void *upage = addr;
+    curr_thraed = thread_current();
     while (read_bytes > 0 || zero_bytes > 0) {
         size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
         size_t page_zero_bytes = PGSIZE - page_read_bytes;
@@ -103,13 +137,13 @@ do_mmap(void *addr, size_t length, int writable,
         aux->ofs = dynamic_ofs;
         aux->page_read_bytes = page_read_bytes;
         aux->page_zero_bytes = page_zero_bytes;
-        aux_list[i] = aux;
+        // aux_list[i] = aux;
 
         if (!vm_alloc_page_with_initializer(VM_FILE, upage,
                                             writable, lazy_mmap, (void *)aux)) {
             file_close(reopen_file);
-            for (int j = 0; j <= i; j++)
-                free(aux_list[j]);
+            // for (int j = 0; j <= i; j++)
+            //     free(aux_list[j]);
             return NULL;
         }
 
@@ -141,6 +175,7 @@ void do_munmap(void *addr) {
         }
 
         hash_delete(&(curr_thread->spt), &(pg->page_elem));
+        spt_remove_page(&curr_thread->spt, pg);
         vm_dealloc_page(pg);
 
         addr += PGSIZE;

@@ -3,6 +3,7 @@
 #include "vm/vm.h"
 
 #include "threads/malloc.h"
+#include "threads/mmu.h"
 #include "threads/vaddr.h"
 #include "vm/inspect.h"
 
@@ -17,6 +18,8 @@ void vm_init(void) {
     register_inspect_intr();
     /* DO NOT MODIFY UPPER LINES. */
     /* TODO: Your code goes here. */
+    list_init(&lru);
+    lock_init(&lru_lock);
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -121,6 +124,31 @@ static struct frame *
 vm_get_victim(void) {
     struct frame *victim = NULL;
     /* TODO: The policy for eviction is up to you. */
+    size_t lru_len = list_size(&lru);
+    struct list_elem *tmp = list_begin(&lru);
+    struct frame *tmp_frame;
+    struct list_elem *next_tmp;
+    for (size_t i = 0; i < lru_len; i++) {
+        tmp_frame = list_entry(tmp, struct frame, lru_elem);
+        if (pml4_is_accessed(thread_current()->pml4, tmp_frame->page->va)) {
+            pml4_set_accessed(thread_current()->pml4, tmp_frame->page->va, false);
+            next_tmp = list_next(tmp);
+            list_remove(tmp);
+            list_push_back(&lru, tmp);
+            tmp = next_tmp;
+            continue;
+        }
+        if (victim == NULL) {
+            victim = tmp_frame;
+            next_tmp = list_next(tmp);
+            list_remove(tmp);
+            tmp = next_tmp;
+            continue;
+        }
+        tmp = list_next(tmp);
+    }
+    if (victim == NULL)
+        victim = list_entry(list_pop_front(&lru), struct frame, lru_elem);
 
     return victim;
 }
@@ -129,10 +157,17 @@ vm_get_victim(void) {
  * Return NULL on error.*/
 static struct frame *
 vm_evict_frame(void) {
-    struct frame *victim UNUSED = vm_get_victim();
+    lock_acquire(&lru_lock);
+    struct frame *victim = vm_get_victim();
+    lock_release(&lru_lock);
     /* TODO: swap out the victim and return the evicted frame. */
+    if (!swap_out(victim->page))
+        return NULL;
 
-    return NULL;
+    victim->page = NULL;
+    memset(victim->kva, 0, PGSIZE);
+    
+    return victim;
 }
 
 /* palloc() and get frame. If there is no available page, evict the page
@@ -145,9 +180,7 @@ vm_get_frame(void) {
     /* TODO: Fill this function. */
     void *pg_ptr = palloc_get_page(PAL_USER);
     if (pg_ptr == NULL) {
-        // evict
-        // You don't need to handle swap out for now in case of page allocation failure. Just mark those case with PANIC ("todo") for now.
-        PANIC("TODO");
+        return vm_evict_frame();
     }
 
     frame = (struct frame *)malloc(sizeof(struct frame));
@@ -175,7 +208,7 @@ vm_stack_growth(void *addr) {
 
 /* Handle the fault on write_protected page */
 static bool
-vm_handle_wp(struct page *page UNUSED) {
+vm_handle_wp(struct page *page) {
 }
 
 /* Return true on success */
@@ -185,6 +218,9 @@ bool vm_try_handle_fault(struct intr_frame *f, void *addr,
     struct page *page = NULL;
     /* TODO: Validate the fault */
     /* TODO: Your code goes here */
+    if(is_kernel_vaddr(addr) && user)
+        return false;
+
     if (not_present == false)
         return false;
 
@@ -198,6 +234,9 @@ bool vm_try_handle_fault(struct intr_frame *f, void *addr,
         }
         return false;
     }
+    if(write && !not_present)
+        return false;
+        
     return vm_do_claim_page(page);
 }
 
@@ -226,14 +265,17 @@ static bool
 vm_do_claim_page(struct page *page) {
     struct frame *frame = vm_get_frame();
 
+    if(frame == NULL)
+        return false;
+
     /* Set links */
     frame->page = page;
     page->frame = frame;
 
     /* TODO: Insert page table entry to map page's VA to frame's PA. */
     struct thread *t = thread_current();
-    // if (pml4_get_page(t->pml4, page->va) != NULL)
-    //     return false;
+    list_push_back(&lru, &(frame->lru_elem));
+
     if (pml4_set_page(t->pml4, page->va, frame->kva, page->writable) == false)
         return false;
 

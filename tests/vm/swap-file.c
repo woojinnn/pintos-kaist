@@ -32,7 +32,6 @@ test_main (void)
     size_t len = strlen(large);
     size_t page_end;
     for(page_end = 0; page_end < len; page_end+=4096);
-
     for (i = len+1; i < page_end; i++) 
     {
         if (actual[i] != 0) {
