@@ -7,6 +7,8 @@
 #include "threads/vaddr.h"
 #include "vm/inspect.h"
 
+extern struct lock filesys_lock;
+
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
 void vm_init(void) {
@@ -20,6 +22,7 @@ void vm_init(void) {
     /* TODO: Your code goes here. */
     list_init(&lru);
     lock_init(&lru_lock);
+    lock_init(&kill_lock);
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -74,7 +77,6 @@ bool vm_alloc_page_with_initializer(enum vm_type type, void *upage, bool writabl
         }
 
         pg->writable = writable;
-        pg->is_stack = false;
         /* TODO: Insert the page into the spt. */
         spt_insert_page(spt, pg);
         return true;
@@ -124,6 +126,7 @@ static struct frame *
 vm_get_victim(void) {
     struct frame *victim = NULL;
     /* TODO: The policy for eviction is up to you. */
+    lock_acquire(&lru_lock);
     size_t lru_len = list_size(&lru);
     struct list_elem *tmp = list_begin(&lru);
     struct frame *tmp_frame;
@@ -149,6 +152,7 @@ vm_get_victim(void) {
     }
     if (victim == NULL)
         victim = list_entry(list_pop_front(&lru), struct frame, lru_elem);
+    lock_release(&lru_lock);
 
     return victim;
 }
@@ -157,16 +161,14 @@ vm_get_victim(void) {
  * Return NULL on error.*/
 static struct frame *
 vm_evict_frame(void) {
-    lock_acquire(&lru_lock);
     struct frame *victim = vm_get_victim();
-    lock_release(&lru_lock);
     /* TODO: swap out the victim and return the evicted frame. */
     if (!swap_out(victim->page))
         return NULL;
 
     victim->page = NULL;
     memset(victim->kva, 0, PGSIZE);
-    
+
     return victim;
 }
 
@@ -200,7 +202,6 @@ vm_stack_growth(void *addr) {
 
     while (vm_alloc_page(VM_ANON, pg_addr, true)) {
         struct page *pg = spt_find_page(&thread_current()->spt, pg_addr);
-        pg->is_stack = true;
         vm_claim_page(pg_addr);
         pg_addr += PGSIZE;
     }
@@ -218,7 +219,7 @@ bool vm_try_handle_fault(struct intr_frame *f, void *addr,
     struct page *page = NULL;
     /* TODO: Validate the fault */
     /* TODO: Your code goes here */
-    if(is_kernel_vaddr(addr) && user)
+    if (is_kernel_vaddr(addr) && user)
         return false;
 
     if (not_present == false)
@@ -234,9 +235,9 @@ bool vm_try_handle_fault(struct intr_frame *f, void *addr,
         }
         return false;
     }
-    if(write && !not_present)
+    if (write && !not_present)
         return false;
-        
+
     return vm_do_claim_page(page);
 }
 
@@ -265,7 +266,7 @@ static bool
 vm_do_claim_page(struct page *page) {
     struct frame *frame = vm_get_frame();
 
-    if(frame == NULL)
+    if (frame == NULL)
         return false;
 
     /* Set links */
@@ -274,7 +275,9 @@ vm_do_claim_page(struct page *page) {
 
     /* TODO: Insert page table entry to map page's VA to frame's PA. */
     struct thread *t = thread_current();
+    lock_acquire(&lru_lock);
     list_push_back(&lru, &(frame->lru_elem));
+    lock_release(&lru_lock);
 
     if (pml4_set_page(t->pml4, page->va, frame->kva, page->writable) == false)
         return false;
@@ -313,6 +316,7 @@ bool supplemental_page_table_copy(struct supplemental_page_table *dst,
                 if (VM_TYPE(tmp->uninit.type) == VM_ANON) {
                     struct load_segment_aux *info = (struct load_segment_aux *)malloc(sizeof(struct load_segment_aux));
                     memcpy(info, tmp->uninit.aux, sizeof(struct load_segment_aux));
+
                     info->file = file_duplicate(info->file);
 
                     vm_alloc_page_with_initializer(tmp->uninit.type, tmp->va, tmp->writable, tmp->uninit.init, (void *)info);
@@ -346,7 +350,9 @@ static void spt_destroy_func(struct hash_elem *e, void *aux) {
 /* Free the resource hold by the supplemental page table */
 void supplemental_page_table_kill(struct supplemental_page_table *spt) {
     /* TODO: Destroy all the supplemental_page_table hold by thread */
+    lock_acquire(&kill_lock);
     hash_destroy(&(spt->spt), spt_destroy_func);
+    lock_release(&kill_lock);
 
     /* TODO: writeback all the modified contents to the storage. */
 }

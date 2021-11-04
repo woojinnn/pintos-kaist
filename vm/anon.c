@@ -15,6 +15,7 @@ static bool anon_swap_out(struct page *page);
 static void anon_destroy(struct page *page);
 
 extern struct list lru;
+extern struct lock lru_lock;
 
 /* DO NOT MODIFY this struct */
 static const struct page_operations anon_ops = {
@@ -41,7 +42,7 @@ bool anon_initializer(struct page *page, enum vm_type type, void *kva) {
     anon_page->sec_no = SIZE_MAX;
     anon_page->thread = thread_current();
 
-	return true;
+    return true;
 }
 
 /* Swap in the page by read contents from the swap disk. */
@@ -100,10 +101,12 @@ anon_destroy(struct page *page) {
     struct anon_page *anon_page = &page->anon;
 
     if (page->frame != NULL) {
+        lock_acquire(&lru_lock);
         list_remove(&(page->frame->lru_elem));
-		free(page->frame);
+        lock_release(&lru_lock);
+
+        free(page->frame);
     }
-	if(anon_page->sec_no != SIZE_MAX)
-		bitmap_set_multiple(disk_bitmap, anon_page->sec_no, 8, false);
-	
+    if (anon_page->sec_no != SIZE_MAX)
+        bitmap_set_multiple(disk_bitmap, anon_page->sec_no, 8, false);
 }

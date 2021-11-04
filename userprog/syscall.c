@@ -94,9 +94,6 @@ void validate_buffer(void *buffer, size_t size, bool to_write) {
         if (pg->writable == false && to_write == true) {
             sys_exit(-1);
         }
-
-        // if (pg->is_stack)
-        //     sys_exit(-1);
     }
 }
 

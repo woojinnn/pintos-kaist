@@ -7,7 +7,6 @@ static bool file_backed_swap_in(struct page *page, void *kva);
 static bool file_backed_swap_out(struct page *page);
 static void file_backed_destroy(struct page *page);
 
-extern struct lock filesys_lock;
 /* DO NOT MODIFY this struct */
 static const struct page_operations file_ops = {
     .swap_in = file_backed_swap_in,
@@ -15,6 +14,9 @@ static const struct page_operations file_ops = {
     .destroy = file_backed_destroy,
     .type = VM_FILE,
 };
+
+extern struct lock filesys_lock;
+extern struct lock lru_lock;
 
 /* The initializer of file vm */
 void vm_file_init(void) {
@@ -70,8 +72,10 @@ file_backed_destroy(struct page *page) {
     struct file_page *file_page = &page->file;
     list_remove(&(file_page->file_elem));
     if (page->frame != NULL) {
+        lock_acquire(&lru_lock);
         list_remove(&(page->frame->lru_elem));
-		free(page->frame);
+        lock_release(&lru_lock);
+        free(page->frame);
     }
 }
 
@@ -108,24 +112,17 @@ do_mmap(void *addr, size_t length, int writable,
         struct file *file, off_t offset) {
     struct file *reopen_file = file_reopen(file);
 
-    struct thread *curr_thraed = thread_current();
-
     if (reopen_file == NULL) {
         return NULL;
     }
-    curr_thraed = thread_current();
 
     // struct mmap_aux *aux_list[length / PGSIZE + 1];
-    curr_thraed = thread_current();
     int i = 0;
-    curr_thraed = thread_current();
 
     size_t read_bytes = length;
     size_t zero_bytes = PGSIZE - length % PGSIZE;
     off_t dynamic_ofs = offset;
-    curr_thraed = thread_current();
     void *upage = addr;
-    curr_thraed = thread_current();
     while (read_bytes > 0 || zero_bytes > 0) {
         size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
         size_t page_zero_bytes = PGSIZE - page_read_bytes;

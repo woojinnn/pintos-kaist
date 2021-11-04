@@ -6,6 +6,7 @@
 
 struct list lru;
 struct lock lru_lock;
+struct lock kill_lock;
 
 enum vm_type {
 	/* page not initialized */
@@ -53,7 +54,6 @@ struct page {
 	size_t page_read_bytes;
 	struct hash_elem page_elem;
 	bool writable;
-	bool is_stack;
 
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */

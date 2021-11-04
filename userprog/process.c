@@ -441,7 +441,7 @@ void process_exit(void) {
     list_remove(&(curr->child_elem));
     lock_release(&process_lock);
 
-    while(!list_empty(&curr->mmap_list)) {
+    while (!list_empty(&curr->mmap_list)) {
         struct list_elem *elem = list_pop_front(&(curr->mmap_list));
         struct file_page *f_page = list_entry(elem, struct file_page, file_elem);
         lock_acquire(&process_lock);
@@ -633,23 +633,34 @@ load(const char *file_name, struct intr_frame *if_) {
     }
 
     /* Read and verify executable header. */
+    lock_acquire(&filesys_lock);
     if (file_read(file, &ehdr, sizeof ehdr) != sizeof ehdr || memcmp(ehdr.e_ident, "\177ELF\2\1\1", 7) || ehdr.e_type != 2 || ehdr.e_machine != 0x3E  // amd64
         || ehdr.e_version != 1 || ehdr.e_phentsize != sizeof(struct Phdr) || ehdr.e_phnum > 1024) {
+        lock_release(&filesys_lock);
+
         printf("load: %s: error loading executable\n", file_name);
         goto done;
     }
+    lock_release(&filesys_lock);
 
     /* Read program headers. */
     file_ofs = ehdr.e_phoff;
     for (i = 0; i < ehdr.e_phnum; i++) {
         struct Phdr phdr;
 
-        if (file_ofs < 0 || file_ofs > file_length(file))
+        lock_acquire(&filesys_lock);
+        if (file_ofs < 0 || file_ofs > file_length(file)) {
+            lock_release(&filesys_lock);
             goto done;
+        }
         file_seek(file, file_ofs);
 
-        if (file_read(file, &phdr, sizeof phdr) != sizeof phdr)
+        if (file_read(file, &phdr, sizeof phdr) != sizeof phdr) {
+            lock_release(&filesys_lock);
             goto done;
+        }
+        lock_release(&filesys_lock);
+
         file_ofs += sizeof phdr;
         switch (phdr.p_type) {
             case PT_NULL:
@@ -924,7 +935,9 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
 
         /* TODO: Set up aux to pass information to the lazy_load_segment. */
         struct load_segment_aux *aux = (struct load_segment_aux *)malloc(sizeof(struct load_segment_aux));
+        lock_acquire(&filesys_lock);
         aux->file = file_reopen(file);
+        lock_release(&filesys_lock);
         aux->ofs = dynamic_ofs;
         aux->page_read_bytes = page_read_bytes;
         aux->page_zero_bytes = page_zero_bytes;
@@ -958,7 +971,6 @@ setup_stack(struct intr_frame *if_) {
     success = vm_alloc_page(VM_ANON, stack_bottom, true);
     if (success) {
         struct page *pg = spt_find_page(&thread_current()->spt, stack_bottom);
-        pg->is_stack = true;
 
         if (vm_claim_page(stack_bottom))
             if_->rsp = (uintptr_t)USER_STACK;
