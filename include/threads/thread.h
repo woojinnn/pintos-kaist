@@ -117,7 +117,6 @@ struct thread {
     struct semaphore load_sema;
 
     bool process_exit;
-    struct semaphore exit_sema;
     int exit_status;
 
     struct file **fd_table;
@@ -125,7 +124,7 @@ struct thread {
     int next_fd;
     int next_file;
 
-    struct list dead_childs;
+    struct list exit_infos;
 
     bool is_user_thread;
 
@@ -150,12 +149,6 @@ struct thread {
     /* Owned by thread.c. */
     struct intr_frame tf; /* Information for switching */
     unsigned magic;       /* Detects stack overflow. */
-};
-
-struct dead_child {
-    tid_t tid;
-    int exit_status;
-    struct list_elem dead_elem;
 };
 
 struct sleeping_thread {

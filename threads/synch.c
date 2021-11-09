@@ -183,7 +183,7 @@ void lock_acquire(struct lock *lock) {
 
     if (lock->holder != NULL) {
         thread_current()->wait_on_lock = lock;
-        if (!thread_mlfqs)
+        if (!thread_mlfqs && !thread_current()->is_user_thread)
             donate_priority();
     }
 
@@ -221,7 +221,7 @@ void lock_release(struct lock *lock) {
     ASSERT(lock_held_by_current_thread(lock));
 
     lock->holder = NULL;
-    if (!thread_mlfqs) {
+    if (!thread_mlfqs && !thread_current()->is_user_thread) {
         remove_with_lock(lock);
         refresh_priority();
         sort_donation_list();

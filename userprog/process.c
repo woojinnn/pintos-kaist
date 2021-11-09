@@ -25,7 +25,7 @@
 #endif
 
 struct lock filesys_lock;
-struct lock dead_lock;
+struct lock exit_info_lock;
 struct lock process_lock;
 
 uint64_t stdin_file;
@@ -39,6 +39,7 @@ static void argument_stack(char **argv, int argc, uintptr_t *rsp_addr);
 static void set_arg_reg(struct intr_frame *_if, int argc, char *argv_0);
 
 static struct thread *get_child_process(tid_t pid);
+static struct exit_info *get_exit_info(tid_t tid, bool find_in_parent);
 static void remove_child_process(struct thread *cp);
 
 int process_add_file(struct file *f);
@@ -49,6 +50,19 @@ bool process_close_file(int fd);
 static void
 process_init(void) {
     struct thread *current = thread_current();
+    struct exit_info *exit_info = (struct exit_info *)malloc(sizeof(struct exit_info));
+    if (exit_info == NULL) {
+        current->exit_status = -1;
+        thread_exit();
+    }
+    lock_acquire(&exit_info_lock);
+    exit_info->child_tid = current->tid;
+    exit_info->parent_tid = current->parent->tid;
+    exit_info->exit_status = 0;
+    sema_init(&exit_info->sema, 0);
+    list_push_back(&current->parent->exit_infos, &exit_info->exit_elem);
+    lock_release(&exit_info_lock);
+
     current->fd_table = (struct file **)realloc(current->fd_table, sizeof(struct file *) * 2);
     if (current->fd_table == NULL) {
         current->exit_status = -1;
@@ -361,38 +375,21 @@ int process_wait(tid_t child_tid) {
     /* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-    struct thread *child = get_child_process(child_tid);
-    if (child != NULL) {
-        sema_down(&(child->exit_sema));
+    struct exit_info *exit_info = get_exit_info(child_tid, false);
+    if (exit_info == NULL) {
+        return -1;
     }
 
-    struct thread *curr = thread_current();
+    sema_down(&exit_info->sema);
 
-    struct list_elem *tmp;
-    struct dead_child *tmp_info;
-    int status;
+    int exit_status = exit_info->exit_status;
 
-    lock_acquire(&dead_lock);
-    for (tmp = list_begin(&curr->dead_childs); tmp != list_end(&curr->dead_childs); tmp = list_next(tmp)) {
-        tmp_info = list_entry(tmp, struct dead_child, dead_elem);
-        if (tmp_info->tid == child_tid) {
-            status = tmp_info->exit_status;
-            tmp_info->exit_status = -1;
-            lock_release(&dead_lock);
-            return status;
-        }
-    }
-    lock_release(&dead_lock);
+    lock_acquire(&exit_info_lock);
+    list_remove(&exit_info->exit_elem);
+    lock_release(&exit_info_lock);
+    free(exit_info);
 
-    if (child == NULL) {
-        // there is no such child_tid
-        // same as sys_exit(-1)
-        curr->exit_status = -1;
-        thread_exit();
-    }
-
-    NOT_REACHED();
-    return child->exit_status;
+    return exit_status;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -405,12 +402,17 @@ void process_exit(void) {
     curr->process_exit = true;
     struct thread *parent = curr->parent;
 
-    lock_acquire(&dead_lock);
-    while (!list_empty(&(curr->dead_childs))) {
-        struct dead_child *tmp = list_entry(list_pop_front(&(curr->dead_childs)), struct dead_child, dead_elem);
-        free(tmp);
+    struct exit_info *exit_info_tmp;
+    lock_acquire(&exit_info_lock);
+    while (!list_empty(&(curr->exit_infos))) {
+        exit_info_tmp = list_entry(list_pop_front(&(curr->exit_infos)), struct exit_info, exit_elem);
+        free(exit_info_tmp);
     }
-    lock_release(&dead_lock);
+    lock_release(&exit_info_lock);
+    exit_info_tmp = get_exit_info(curr->tid, true);
+    if (exit_info_tmp != NULL) {
+        exit_info_tmp->exit_status = curr->exit_status;
+    }
 
     if (curr->file_executing != NULL) {
         file_close(curr->file_executing);
@@ -429,15 +431,6 @@ void process_exit(void) {
     if (curr->is_user_thread == true)
         printf("%s: exit(%d)\n", curr->name, curr->exit_status);
 
-    struct dead_child *dead = (struct dead_child *)malloc(sizeof(struct dead_child));
-    if (dead != NULL) {
-        dead->tid = curr->tid;
-        dead->exit_status = curr->exit_status;
-        lock_acquire(&dead_lock);
-        list_push_front(&(parent->dead_childs), &(dead->dead_elem));
-        lock_release(&dead_lock);
-    }
-
     lock_acquire(&process_lock);
     list_remove(&(curr->child_elem));
     lock_release(&process_lock);
@@ -451,7 +444,8 @@ void process_exit(void) {
     }
 
     process_cleanup();
-    sema_up(&(curr->exit_sema));
+    if (exit_info_tmp != NULL)
+        sema_up(&(exit_info_tmp->sema));
 }
 
 /* Free the current process's resources. */
@@ -779,6 +773,21 @@ struct thread *get_child_process(tid_t pid) {
         }
     }
     lock_release(&process_lock);
+    return NULL;
+}
+
+struct exit_info *get_exit_info(tid_t tid, bool find_in_parent) {
+    struct thread *thread = find_in_parent ? thread_current()->parent : thread_current();
+    struct exit_info *t;
+    lock_acquire(&exit_info_lock);
+    for (struct list_elem *tmp = list_begin(&thread->exit_infos); tmp != list_end(&thread->exit_infos); tmp = list_next(tmp)) {
+        t = list_entry(tmp, struct exit_info, exit_elem);
+        if (t->child_tid == tid) {
+            lock_release(&exit_info_lock);
+            return t;
+        }
+    }
+    lock_release(&exit_info_lock);
     return NULL;
 }
 
