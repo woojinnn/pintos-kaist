@@ -23,6 +23,7 @@
         "malloc.h": "c",
         "vaddr.h": "c",
         "main.h": "c",
-        "syscall-nr.h": "c"
+        "syscall-nr.h": "c",
+        "mmu.h": "c"
     }
 }

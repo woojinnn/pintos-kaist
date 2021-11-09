@@ -391,6 +391,7 @@ int process_wait(tid_t child_tid) {
         thread_exit();
     }
 
+    NOT_REACHED();
     return child->exit_status;
 }
 
