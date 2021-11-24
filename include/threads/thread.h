@@ -120,9 +120,7 @@ struct thread {
     int exit_status;
 
     struct file **fd_table;
-    struct file **files;
     int next_fd;
-    int next_file;
 
     struct list exit_infos;
 

@@ -232,12 +232,6 @@ __do_fork(void *aux) {
         goto error;
     }
 
-    // Note that files is allocated with parent's "fd table" length.
-    current->files = (struct file **)realloc(current->files, parent->next_fd * sizeof(struct file *));
-    if (current->files == NULL) {
-        goto error;
-    }
-
     for (int i = 0; i < parent->next_fd; i++) {
         struct file *parent_file = parent->fd_table[i];
         if (parent_file == NULL) {
@@ -256,8 +250,6 @@ __do_fork(void *aux) {
             goto error;
         }
         current->fd_table[i] = file_duplicated;
-        current->files[current->next_file] = file_duplicated;
-        current->next_file++;
     }
 
     parent->child_do_fork_success = true;
@@ -419,11 +411,8 @@ void process_exit(void) {
     }
 
     if (curr->fd_table != NULL) {
-        if (curr->files != NULL) {
-            for (int i = 0; i < curr->next_file; ++i) {
-                file_close(curr->files[i]);
-            }
-            free(curr->files);
+        for (int i = curr->next_fd - 1; i >= 2; i--) {
+            process_close_file(i);
         }
         free(curr->fd_table);
     }
@@ -488,15 +477,6 @@ void process_activate(struct thread *next) {
 
 int process_add_file(struct file *f) {
     struct thread *curr = thread_current();
-    curr->next_file++;
-    void *old_files = curr->files;
-    curr->files = (struct file **)realloc(curr->files, curr->next_file * sizeof(struct file *));
-    if (curr->files == NULL) {
-        curr->files = old_files;
-        curr->next_file--;
-        return -1;
-    }
-    curr->files[curr->next_file - 1] = f;
 
     for (int i = 0; i < curr->next_fd; i++) {
         if (curr->fd_table[i] == NULL) {
@@ -535,6 +515,7 @@ bool process_close_file(int fd) {
         return false;
     }
 
+    file_close(f);
     curr->fd_table[fd] = NULL;
 
     return true;
