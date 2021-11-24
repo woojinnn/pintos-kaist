@@ -24,6 +24,8 @@
         "vaddr.h": "c",
         "main.h": "c",
         "syscall-nr.h": "c",
-        "mmu.h": "c"
+        "mmu.h": "c",
+        "inode.h": "c",
+        "disk.h": "c"
     }
 }

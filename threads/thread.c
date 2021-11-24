@@ -354,6 +354,10 @@ tid_t thread_create(const char *name, int priority,
     t->is_user_thread = false;
     // END USERPROG
 
+    // FILESYS
+    t->current_dir = thread_current()->current_dir;
+    // END FILESYS
+
     /* Add to run queue. */
     list_push_back(&all_list, &t->all_elem);
     thread_unblock(t);
@@ -684,6 +688,10 @@ init_thread(struct thread *t, const char *name, int priority) {
     t->user_rsp = 0;
     list_init(&(t->mmap_list));
     // end VM
+
+    //FILESYS
+    t->current_dir = NULL;
+    //end FILESYS
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should

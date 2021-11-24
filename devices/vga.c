@@ -90,7 +90,7 @@ vga_putc (int c) {
 
 	intr_set_level (old_level);
 }
-
+
 /* Clears the screen and moves the cursor to the upper left. */
 static void
 cls (void) {

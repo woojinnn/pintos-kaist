@@ -32,6 +32,12 @@ static void sys_close(int fd);
 static int sys_dup2(int oldfd, int newfd);
 static void *sys_mmap(void *addr, size_t length, int writable, int fd, off_t offset);
 static void sys_munmap(void *addr);
+static bool sys_chdir(const char *dir);
+static bool sys_mkdir(const char *dir);
+static bool sys_readdir(int fd, char *name);
+static bool sys_isdir(int fd);
+static int sys_inumber(int fd);
+static int sys_symlink(const char *target, const char *linkpath);
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
@@ -190,6 +196,36 @@ void syscall_handler(struct intr_frame *f) {
 
         case SYS_MUNMAP:
             sys_munmap((void *)args[0]);
+            break;
+
+            /* Change the current directory. */
+        case SYS_CHDIR:
+            SET_RAX(f, sys_chdir((const char *)args[0]));
+            break;
+
+        /* Create a directory. */
+        case SYS_MKDIR:
+            SET_RAX(f, sys_mkdir((const char *)args[0]));
+            break;
+
+            /* Reads a directory entry. */
+        case SYS_READDIR:
+            SET_RAX(f, sys_readdir((int)args[0], (char *)args[1]));
+            break;
+
+            /* Tests if a fd represents a directory. */
+        case SYS_ISDIR:
+            SET_RAX(f, sys_isdir((int)args[0]));
+            break;
+
+            /* Returns the inode number for a fd. */
+        case SYS_INUMBER:
+            SET_RAX(f, sys_inumber((int)args[0]));
+            break;
+
+            /* Returns the inode number for a fd. */
+        case SYS_SYMLINK:
+            SET_RAX(f, sys_symlink((const char *)args[0], (const char *)args[1]));
             break;
 
         default:
@@ -416,7 +452,7 @@ int sys_dup2(int oldfd, int newfd) {
     return newfd;
 }
 
-static void *sys_mmap(void *addr, size_t length, int writable, int fd, off_t offset) {
+void *sys_mmap(void *addr, size_t length, int writable, int fd, off_t offset) {
     if (addr == NULL)
         return NULL;
 
@@ -470,7 +506,7 @@ static void *sys_mmap(void *addr, size_t length, int writable, int fd, off_t off
     return success;
 }
 
-static void sys_munmap(void *addr) {
+void sys_munmap(void *addr) {
     if (addr == NULL)
         return;
 
@@ -490,4 +526,17 @@ static void sys_munmap(void *addr) {
 
     do_munmap(addr);
     return;
+}
+
+bool sys_chdir(const char *dir) {
+}
+bool sys_mkdir(const char *dir) {
+}
+bool sys_readdir(int fd, char *name) {
+}
+bool sys_isdir(int fd) {
+}
+int sys_inumber(int fd) {
+}
+int sys_symlink(const char *target, const char *linkpath) {
 }

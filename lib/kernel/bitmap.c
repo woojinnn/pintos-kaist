@@ -7,7 +7,7 @@
 #ifdef FILESYS
 #include "filesys/file.h"
 #endif
-
+
 /* Element type.
 
    This must be an unsigned integer type at least as wide as int.
@@ -62,7 +62,7 @@ last_mask (const struct bitmap *b) {
 	int last_bits = b->bit_cnt % ELEM_BITS;
 	return last_bits ? ((elem_type) 1 << last_bits) - 1 : (elem_type) -1;
 }
-
+
 /* Creation and destruction. */
 
 /* Initializes B to be a bitmap of BIT_CNT bits
@@ -116,7 +116,7 @@ bitmap_destroy (struct bitmap *b) {
 		free (b);
 	}
 }
-
+
 /* Bitmap size. */
 
 /* Returns the number of bits in B. */
@@ -124,7 +124,7 @@ size_t
 bitmap_size (const struct bitmap *b) {
 	return b->bit_cnt;
 }
-
+
 /* Setting and testing single bits. */
 
 /* Atomically sets the bit numbered IDX in B to VALUE. */
@@ -183,7 +183,7 @@ bitmap_test (const struct bitmap *b, size_t idx) {
 	ASSERT (idx < b->bit_cnt);
 	return (b->bits[elem_idx (idx)] & bit_mask (idx)) != 0;
 }
-
+
 /* Setting and testing multiple bits. */
 
 /* Sets all bits in B to VALUE. */
@@ -260,7 +260,7 @@ bool
 bitmap_all (const struct bitmap *b, size_t start, size_t cnt) {
 	return !bitmap_contains (b, start, cnt, false);
 }
-
+
 /* Finding set or unset bits. */
 
 /* Finds and returns the starting index of the first group of CNT
@@ -296,7 +296,7 @@ bitmap_scan_and_flip (struct bitmap *b, size_t start, size_t cnt, bool value) {
 		bitmap_set_multiple (b, idx, cnt, !value);
 	return idx;
 }
-
+
 /* File input and output. */
 
 #ifdef FILESYS
@@ -327,7 +327,7 @@ bitmap_write (const struct bitmap *b, struct file *file) {
 	return file_write_at (file, b->bits, size, 0) == size;
 }
 #endif /* FILESYS */
-
+
 /* Debugging. */
 
 /* Dumps the contents of B to the console as hexadecimal. */

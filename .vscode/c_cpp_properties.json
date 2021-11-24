@@ -6,7 +6,8 @@
                 "USERPROG",
                 "FILESYS",
                 "EXTRA2",
-                "VM"
+                "VM",
+                "EFILESYS"
             ],
             "includePath": [
                 "${workspaceFolder}/**"

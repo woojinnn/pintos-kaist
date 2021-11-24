@@ -31,7 +31,7 @@ usage (void)
           "is in a directory to be archived.)\n");
   exit (EXIT_FAILURE);
 }
-
+
 static bool archive_file (char file_name[], size_t file_name_size,
                           int archive_fd, bool *write_error);
 

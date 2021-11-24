@@ -50,7 +50,7 @@ test_mlfqs_nice_10 (void)
 {
   test_mlfqs_fair (10, 0, 1);
 }
-
+
 #define MAX_THREAD_CNT 20
 
 struct thread_info 

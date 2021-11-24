@@ -8,7 +8,7 @@
             "name": "(gdb) Launch",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/vm/build/kernel.o",
+            "program": "${workspaceFolder}/filesys/build/kernel.o",
             "args": [],
             "stopAtEntry": true,
             "cwd": "${fileDirname}",

@@ -142,6 +142,9 @@ struct thread {
     struct list mmap_list;
     // END VM
 
+    // FILESYS
+    struct dir *current_dir;
+
     /* mlfqs */
     int nice;
     int recent_cpu;

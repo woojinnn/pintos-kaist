@@ -82,7 +82,7 @@ printf (const char *format, ...) {
 
 	return retval;
 }
-
+
 /* printf() formatting internals. */
 
 /* A printf() conversion. */
@@ -543,7 +543,7 @@ __printf (const char *format,
 	__vprintf (format, args, output, aux);
 	va_end (args);
 }
-
+
 /* Dumps the SIZE bytes in BUF to the console as hex bytes
    arranged 16 per line.  Numeric offsets are also included,
    starting at OFS for the first byte in BUF.  If ASCII is true
