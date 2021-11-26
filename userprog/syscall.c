@@ -524,7 +524,7 @@ int sys_read(int fd, void *buffer, unsigned size) {
     struct thread *curr = thread_current();
     validate_buffer(buffer, size, true);
     lock_acquire(&filesys_lock);
-
+    
     int read;
 
     void *f = process_get_file(fd);
@@ -561,6 +561,8 @@ int sys_read(int fd, void *buffer, unsigned size) {
 int sys_write(int fd, const void *buffer, unsigned size) {
     validate_buffer(buffer, size, false);
     lock_acquire(&filesys_lock);
+
+    struct thread *curr = thread_current();
 
     void *f = process_get_file(fd);
     if (f == NULL) {

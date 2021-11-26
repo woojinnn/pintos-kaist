@@ -71,7 +71,7 @@ static void grow_file(struct inode *inode, off_t pos) {
     cluster_t tmp = sector_to_cluster(inode->data.start);
     if(inode->data.start == 0)
         tmp = 0;
-        
+
     for (int i = 0; i < to_make; ++i) {
         tmp = fat_create_chain(tmp);    
         if (tmp == 0) {
@@ -222,13 +222,15 @@ off_t inode_read_at(struct inode *inode, void *buffer_, off_t size, off_t offset
     off_t bytes_read = 0;
     uint8_t *bounce = NULL;
 
+    struct thread *curr = thread_current();
+
     lock_acquire(&inode->inode_lock);
     while (size > 0) {
         /* Disk sector to read, starting byte offset within sector. */
         disk_sector_t sector_idx = byte_to_sector(inode, offset);
         if(sector_idx == -1){
             lock_release(&inode->inode_lock);
-            return 0;
+            return bytes_read;
         }
 
         int sector_ofs = offset % DISK_SECTOR_SIZE;

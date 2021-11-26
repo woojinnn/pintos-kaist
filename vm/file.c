@@ -166,9 +166,7 @@ void do_munmap(void *addr) {
     while (pivot < length) {
         pg = spt_find_page(&(curr_thread->spt), addr);
         if (pml4_is_dirty(curr_thread->pml4, addr)) {
-            lock_acquire(&filesys_lock);
             file_write_at(file, addr, pg->file.page_read_bytes, pg->file.ofs);
-            lock_release(&filesys_lock);
         }
 
         hash_delete(&(curr_thread->spt), &(pg->page_elem));
