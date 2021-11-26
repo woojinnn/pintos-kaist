@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <syscall-nr.h>
 
+#include "filesys/directory.h"
+#include "filesys/inode.h"
 #include "intrinsic.h"
 #include "threads/flags.h"
 #include "threads/interrupt.h"
@@ -13,6 +15,8 @@
 /* helper function for syscall_handler */
 static struct page *validate_usr_addr(void *addr);
 static void get_argument(uintptr_t *rsp, uintptr_t *arg, int count);
+static char **parse_directory(const char *name);
+static struct dir *find_target_dir(const char **path);
 
 /* System calls */
 static void sys_halt(void);
@@ -60,6 +64,14 @@ void syscall_handler(struct intr_frame *);
 extern struct lock filesys_lock;
 extern uint64_t stdin_file;
 extern uint64_t stdout_file;
+
+struct sym_map {
+    char *target;
+    char *linkpath;
+    struct list_elem sym_elem;
+};
+
+extern struct list sym_list;
 
 void syscall_init(void) {
     write_msr(MSR_STAR, ((uint64_t)SEL_UCSEG - 0x10) << 48 |
@@ -121,6 +133,25 @@ void check_bad_ptr(void *addr) {
 
     if (pml4_get_page(thread_current()->pml4, addr) == NULL)
         sys_exit(-1);
+}
+
+// to free: free(directories[0]) and then free(directories). directories[0] is not used except when freeing.
+static char **parse_directory(const char *name) {
+    char *name_copied = (char *)malloc((strlen(name) + 1) * sizeof(char));
+    char **directories = (char **)calloc(128, sizeof(char *));
+    strlcpy(name_copied, name, strlen(name) + 1);
+    directories[0] = name_copied;
+
+    int argc = 1;
+    char *tmp;
+    char *token = strtok_r(name_copied, "/", &tmp);
+    while (token != NULL) {
+        directories[argc] = token + 0x8000000000;
+        argc++;
+        token = strtok_r(NULL, "/", &tmp);
+    }
+
+    return directories;
 }
 
 /* The main system call interface */
@@ -262,13 +293,12 @@ int sys_exec(const char *cmd_line) {
     cmd_copy = palloc_get_page(0);
     if (cmd_copy == NULL)
         return -1;
-    // cmd_copy += 0x8000000000;
+
     strlcpy(cmd_copy, cmd_line, PGSIZE);
 
     // create child process
     process_exec(cmd_copy);
     sys_exit(-1);
-    return -1;
 }
 
 int sys_wait(tid_t pid) {
@@ -276,12 +306,83 @@ int sys_wait(tid_t pid) {
     return status;
 }
 
+static struct dir *find_target_dir(const char **path) {
+    struct dir *curr_dir;
+    struct inode *target_inode;
+    if (path[0][0] == '/' || thread_current()->current_dir == NULL) {
+        curr_dir = dir_open_root();
+    } else {
+        curr_dir = dir_reopen(thread_current()->current_dir);
+    }
+
+    int j;
+    for (j = 0; path[j] != NULL; j++)
+        ;
+
+    for (int i = 1; i < j - 1; i++) {
+        if (dir_lookup(curr_dir, path[i], &target_inode)) {
+            if (!inode_is_dir(target_inode)) {
+                return NULL;
+            }
+            dir_close(curr_dir);
+            curr_dir = dir_open(target_inode);
+        } else
+            return NULL;
+    }
+
+    return dir_reopen(curr_dir);
+}
+
 bool sys_create(const char *file, unsigned initial_size) {
     check_bad_ptr(file);
 
+    if (*file == '\0')
+        return false;
+
+    if (file[strlen(file) - 1] == '/')
+        return false;
+
+    char **path = parse_directory(file);
+    struct dir *current_dir = thread_current()->current_dir;
+    struct dir *target_dir = find_target_dir(path);
+    struct inode *target_inode;
+    if (target_dir == NULL)
+        return false;
+    thread_current()->current_dir = target_dir;
+
+    int i;
+    for (i = 1; path[i] != NULL; i++)
+        ;
+    char *file_name = path[i - 1];
+
+    if (dir_lookup(target_dir, file_name, &target_inode)) {
+        thread_current()->current_dir = current_dir;
+        dir_close(target_dir);
+        return false;
+    }
+
     lock_acquire(&filesys_lock);
-    bool create_result = filesys_create(file, initial_size);
+    bool create_result = filesys_create(file_name, initial_size);
     lock_release(&filesys_lock);
+
+    thread_current()->current_dir = current_dir;
+    dir_close(target_dir);
+
+    struct list_elem *tmp;
+    struct list_elem *next_tmp;
+    char *prev_link = file;
+    for (tmp = list_begin(&sym_list); tmp != list_end(&sym_list); tmp = next_tmp) {
+        struct sym_map *tmp_sym = list_entry(tmp, struct sym_map, sym_elem);
+        next_tmp = list_next(tmp);
+        if (strcmp(prev_link, tmp_sym->target) == 0) {
+            list_remove(tmp);
+            sys_symlink(tmp_sym->target, tmp_sym->linkpath);
+            prev_link = tmp_sym->linkpath;
+            free(tmp_sym->target);
+            free(tmp_sym);
+        }
+    }
+
     return create_result;
 }
 
@@ -289,9 +390,46 @@ bool sys_remove(const char *file) {
     // check validity
     check_bad_ptr(file);
 
+    if (!strcmp(file, "/")) {
+        return false;
+    }
+
+    char **path = parse_directory(file);
+    struct dir *current_dir = thread_current()->current_dir;
+    struct dir *target_dir = find_target_dir(path);
+    struct inode *target_inode;
+    if (target_dir == NULL)
+        return false;
+    thread_current()->current_dir = target_dir;
+
+    int i;
+    for (i = 0; path[i] != NULL; i++)
+        ;
+
+    char *file_name = path[i - 1];
+
+    if (!dir_lookup(target_dir, file_name, &target_inode)) {
+        thread_current()->current_dir = current_dir;
+        dir_close(target_dir);
+        return false;
+    }
+
+    if (current_dir != NULL && dir_get_inode(current_dir) == target_inode) {
+        thread_current()->current_dir = current_dir;
+        return false;
+    }
+
+    if (current_dir != NULL && dir_get_inode(get_parent_dir(current_dir)) == target_inode) {
+        thread_current()->current_dir = current_dir;
+        return false;
+    }
+
     lock_acquire(&filesys_lock);
-    bool remove_result = filesys_remove(file);
+    bool remove_result = filesys_remove(file_name);
     lock_release(&filesys_lock);
+
+    thread_current()->current_dir = current_dir;
+    dir_close(target_dir);
     return remove_result;
 }
 
@@ -301,15 +439,67 @@ int sys_open(const char *file) {
     if (*file == '\0')
         return -1;
 
-    lock_acquire(&filesys_lock);
-    void *f = filesys_open(file);
-    lock_release(&filesys_lock);
+    struct file_unioned *file_unioned = (struct file_unioned *)malloc(sizeof(struct file_unioned));
+    if (!strcmp(file, "/")) {
+        file_unioned->dir = dir_open_root();
+        file_unioned->file = NULL;
+        return process_add_file(file_unioned);
+    }
 
-    if (f == NULL)
+    char **path = parse_directory(file);
+    struct dir *current_dir = thread_current()->current_dir;
+    struct dir *target_dir = find_target_dir(path);
+    struct inode *target_inode;
+    if (target_dir == NULL)
         return -1;
-    f += 0x8000000000;
+    thread_current()->current_dir = target_dir;
 
-    return process_add_file(f);
+    int i;
+    for (i = 0; path[i] != NULL; i++)
+        ;
+    char *file_name = path[i - 1];
+
+    void *f;
+    if (dir_lookup(target_dir, file_name, &target_inode)) {
+        if (inode_is_dir(target_inode)) {
+            lock_acquire(&filesys_lock);
+            f = dir_open(target_inode);
+            if (get_parent_dir(f) == NULL)
+                set_parent_dir(f, dir_open_root());
+            lock_release(&filesys_lock);
+            if (f == NULL) {
+                goto open_error;
+            }
+            file_unioned->dir = (struct dir *)f;
+            file_unioned->file = NULL;
+        } else if (!inode_is_dir(target_inode) && file[strlen(file) - 1] == '/') {
+            goto open_error;
+        } else {
+            lock_acquire(&filesys_lock);
+            f = filesys_open(file_name);
+            lock_release(&filesys_lock);
+
+            if (f == NULL) {
+                goto open_error;
+            }
+
+            f += 0x8000000000;
+            file_unioned->file = (struct file *)f;
+            file_unioned->dir = NULL;
+        }
+    } else {
+        goto open_error;
+    }
+
+    thread_current()->current_dir = current_dir;
+    dir_close(target_dir);
+
+    return process_add_file(file_unioned);
+
+open_error:
+    thread_current()->current_dir = current_dir;
+    dir_close(target_dir);
+    return -1;
 }
 
 int sys_filesize(int fd) {
@@ -319,8 +509,13 @@ int sys_filesize(int fd) {
         return -1;
     f += 0x8000000000;
 
+    struct file_unioned *file = (struct file_unioned *)f;
+
+    if (file->file == NULL)
+        return -1;
+
     lock_acquire(&filesys_lock);
-    int length_result = (int)file_length(f);
+    int length_result = (int)file_length(file->file);
     lock_release(&filesys_lock);
     return length_result;
 }
@@ -339,6 +534,7 @@ int sys_read(int fd, void *buffer, unsigned size) {
     }
 
     f += 0x8000000000;
+    struct file_unioned *file = (struct file_unioned *)f;
 
     if (f == (void *)&stdin_file) {
         read = input_getc();
@@ -351,7 +547,12 @@ int sys_read(int fd, void *buffer, unsigned size) {
         sys_exit(-1);
     }
 
-    read = (int)file_read(f, buffer, (off_t)size);
+    if (file->file == NULL) {
+        lock_release(&filesys_lock);
+        sys_exit(-1);
+    }
+
+    read = (int)file_read(file->file, buffer, (off_t)size);
 
     lock_release(&filesys_lock);
     return read;
@@ -368,6 +569,7 @@ int sys_write(int fd, const void *buffer, unsigned size) {
     }
 
     f += 0x8000000000;
+    struct file_unioned *file = (struct file_unioned *)f;
 
     if (f == (void *)&stdout_file) {
         putbuf(buffer, size);
@@ -380,7 +582,12 @@ int sys_write(int fd, const void *buffer, unsigned size) {
         sys_exit(-1);
     }
 
-    int written = (int)file_write(f, buffer, (off_t)size);
+    if (file->file == NULL) {
+        lock_release(&filesys_lock);
+        return -1;
+    }
+
+    int written = (int)file_write(file->file, buffer, (off_t)size);
     lock_release(&filesys_lock);
     return written;
 }
@@ -391,9 +598,13 @@ void sys_seek(int fd, unsigned position) {
     if (f == NULL)
         return;
     f += 0x8000000000;
+    struct file_unioned *file = (struct file_unioned *)f;
+
+    if (file->file == NULL)
+        return -1;
 
     lock_acquire(&filesys_lock);
-    file_seek(f, (off_t)position);
+    file_seek(file->file, (off_t)position);
     lock_release(&filesys_lock);
 }
 
@@ -404,8 +615,13 @@ unsigned sys_tell(int fd) {
         return -1;
 
     f += 0x8000000000;
+    struct file_unioned *file = (struct file_unioned *)f;
+
+    if (file->file == NULL)
+        return -1;
+
     lock_acquire(&filesys_lock);
-    unsigned tell_result = (unsigned)file_tell(f);
+    unsigned tell_result = (unsigned)file_tell(file->file);
     lock_release(&filesys_lock);
     return tell_result;
 }
@@ -481,16 +697,20 @@ void *sys_mmap(void *addr, size_t length, int writable, int fd, off_t offset) {
         }
     }
 
-    void *file = process_get_file(fd);
-    if (file == NULL)
+    void *f = process_get_file(fd);
+    if (f == NULL)
         return NULL;
 
-    file += 0x8000000000;
+    f += 0x8000000000;
+    struct file_unioned *file = (struct file_unioned *)f;
 
-    if ((file == &stdin_file) || (file == &stdout_file))
+    if ((f == &stdin_file) || (f == &stdout_file))
         return NULL;
 
-    off_t file_len = file_length(file);
+    if (file->file == NULL)
+        return -1;
+
+    off_t file_len = file_length(file->file);
     if (file_len == 0)
         return NULL;
 
@@ -500,7 +720,7 @@ void *sys_mmap(void *addr, size_t length, int writable, int fd, off_t offset) {
     struct thread *curr_thraed = thread_current();
     file_len = file_len < length ? file_len : length;
     lock_acquire(&filesys_lock);
-    void *success = do_mmap(addr, (size_t)file_len, writable, file, offset);
+    void *success = do_mmap(addr, (size_t)file_len, writable, file->file, offset);
     lock_release(&filesys_lock);
 
     return success;
@@ -529,14 +749,175 @@ void sys_munmap(void *addr) {
 }
 
 bool sys_chdir(const char *dir) {
+    check_bad_ptr(dir);
+
+    if (*dir == '\0')
+        return false;
+
+    if (!strcmp(dir, "/")) {
+        thread_current()->current_dir = dir_open_root();
+        return true;
+    }
+
+    if (!strcmp(dir, ".")) {
+        return true;
+    }
+
+    if (!strcmp(dir, "..")) {
+        thread_current()->current_dir = get_parent_dir(thread_current()->current_dir);
+        return true;
+    }
+
+    char **path = parse_directory(dir);
+    struct dir *target_dir = find_target_dir(path);
+    struct inode *target_inode;
+    if (target_dir == NULL)
+        return false;
+
+    int i;
+    for (i = 1; path[i] != NULL; i++)
+        ;
+    char *file_name = path[i - 1];
+
+    if (!dir_lookup(target_dir, file_name, &target_inode)) {
+        dir_close(target_dir);
+        return false;
+    }
+
+    thread_current()->current_dir = dir_open(target_inode);
+    if (get_parent_dir(thread_current()->current_dir) == NULL)
+        set_parent_dir(thread_current()->current_dir, dir_open_root());
+    return true;
 }
 bool sys_mkdir(const char *dir) {
+    check_bad_ptr(dir);
+
+    if (*dir == '\0')
+        return false;
+
+    char **path = parse_directory(dir);
+    struct dir *current_dir = thread_current()->current_dir;
+    struct dir *target_dir = find_target_dir(path);
+    struct inode *target_inode;
+    if (target_dir == NULL)
+        return false;
+    thread_current()->current_dir = target_dir;
+
+    int i;
+    for (i = 1; path[i] != NULL; i++)
+        ;
+    char *file_name = path[i - 1];
+
+    if (dir_lookup(target_dir, file_name, &target_inode)) {
+        thread_current()->current_dir = current_dir;
+        dir_close(target_dir);
+        return false;
+    }
+
+    disk_sector_t inode_sector = 0;
+    fat_allocate(1, &inode_sector);
+
+    lock_acquire(&filesys_lock);
+    bool create_result = dir_create(inode_sector, 16);
+    if (create_result)
+        dir_add(target_dir, file_name, inode_sector);
+    lock_release(&filesys_lock);
+
+    thread_current()->current_dir = current_dir;
+    dir_close(target_dir);
+
+    return create_result;
 }
+
 bool sys_readdir(int fd, char *name) {
+    check_bad_ptr(name);
+    void *f = process_get_file(fd);
+
+    if (f == NULL)
+        return -1;
+
+    f += 0x8000000000;
+    struct file_unioned *file = (struct file_unioned *)f;
+
+    if (file->dir == NULL)
+        return false;
+
+    return dir_readdir(file->dir, name);
 }
+
 bool sys_isdir(int fd) {
+    void *f = process_get_file(fd);
+
+    if (f == NULL)
+        return -1;
+
+    f += 0x8000000000;
+    struct file_unioned *file = (struct file_unioned *)f;
+
+    return file->dir != NULL;
 }
+
 int sys_inumber(int fd) {
+    void *f = process_get_file(fd);
+
+    if (f == NULL)
+        return -1;
+
+    f += 0x8000000000;
+    struct file_unioned *file = (struct file_unioned *)f;
+
+    if (file->file != NULL)
+        return (int)inode_get_inumber(file_get_inode(file->file));
+
+    else if (file->dir != NULL)
+        return (int)inode_get_inumber(dir_get_inode(file->dir));
+
+    return -1;
 }
+
 int sys_symlink(const char *target, const char *linkpath) {
+    // check_bad_ptr(target);
+    // check_bad_ptr(linkpath);
+
+    if (*target == '\0')
+        return -1;
+
+    if (*linkpath == '\0')
+        return -1;
+
+    char **link_path = parse_directory(linkpath);
+    struct dir *link_target_dir = find_target_dir(link_path);
+    if (link_target_dir == NULL)
+        return -1;
+
+    int i;
+    for (i = 1; link_path[i] != NULL; i++)
+        ;
+    char *link_name = link_path[i - 1];
+
+    char **path = parse_directory(target);
+    struct dir *target_dir = find_target_dir(path);
+    struct inode *target_inode;
+    if (target_dir == NULL)
+        return -1;
+
+    for (i = 1; path[i] != NULL; i++)
+        ;
+    char *file_name = path[i - 1];
+
+    if (!dir_lookup(target_dir, file_name, &target_inode)) {
+        struct sym_map *sym_map = (struct sym_map *)malloc(sizeof(struct sym_map));
+        char *target_cp = malloc(sizeof(strlen(target)) + 1);
+        char *link_cp = malloc(sizeof(strlen(linkpath)) + 1);
+        strlcpy(target_cp, target, strlen(target) + 1);
+        strlcpy(link_cp, linkpath, strlen(linkpath) + 1);
+        sym_map->target = target_cp;
+        sym_map->linkpath = link_cp;
+        list_push_back(&sym_list, &sym_map->sym_elem);
+        dir_close(target_dir);
+        return 0;
+    }
+
+    dir_add(link_target_dir, link_name, inode_get_inumber(target_inode));
+    return 0;
 }

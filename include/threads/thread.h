@@ -20,6 +20,12 @@ enum thread_status {
     THREAD_DYING    /* About to be destroyed. */
 };
 
+struct file_unioned {
+    struct file *file;
+    struct dir *dir;
+    int fd;
+};
+
 /* Thread identifier type.
    You can redefine this to whatever type you like. */
 typedef int tid_t;
@@ -119,7 +125,7 @@ struct thread {
     bool process_exit;
     int exit_status;
 
-    struct file **fd_table;
+    struct file_unioned **fd_table;
     int next_fd;
 
     struct list exit_infos;

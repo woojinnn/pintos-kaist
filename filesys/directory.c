@@ -4,11 +4,11 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "filesys/fat.h"
 #include "filesys/filesys.h"
 #include "filesys/inode.h"
 #include "threads/malloc.h"
 #include "threads/thread.h"
-#include "filesys/fat.h"
 
 /* A directory. */
 struct dir {
@@ -24,31 +24,24 @@ struct dir_entry {
     bool in_use;                /* In use or free? */
 };
 
-// to free: free(directories[0]) and then free(directories)
-static char **parse_directory(const char *name) {
-    char *name_copied = (char *)malloc(strlen(name) * sizeof(char));
-    char **directories = (char **)calloc(128, sizeof(char *));
-    strlcpy(name_copied, name, strlen(name));
-    directories[0] = name_copied;
+static int dir_cnt;
 
-    int argc = 1;
-    char *tmp;
-    char *token = strtok_r(name_copied, "/", &tmp);
-    while (token != NULL) {
-        directories[argc] = token;
-        argc++;
-        token = strtok_r(NULL, "/", &tmp);
-    }
-
-    return directories;
+struct dir *get_parent_dir(struct dir *dir) {
+    return dir->parent_dir;
 }
 
+void set_parent_dir(struct dir *dir, struct dir *pdir) {
+    dir->parent_dir = pdir;
+}
 /* Creates a directory with space for ENTRY_CNT entries in the
  * given SECTOR.  Returns true if successful, false on failure. */
 bool dir_create(disk_sector_t sector, size_t entry_cnt) {
     bool success = inode_create(sector, entry_cnt * sizeof(struct dir_entry));
 
     if (success) {
+        if (++dir_cnt > 512)
+            return false;
+            
         struct inode *dir_inode = inode_open(sector);
         inode_set_dir(dir_inode);
         struct dir *dir = dir_open(dir_inode);
@@ -101,7 +94,10 @@ dir_open_root(void) {
  * Returns a null pointer on failure. */
 struct dir *
 dir_reopen(struct dir *dir) {
-    return dir_open(inode_reopen(dir->inode));
+    struct dir *re_dir = dir_open(inode_reopen(dir->inode));
+    if (re_dir->parent_dir == NULL)
+        re_dir->parent_dir = dir_open_root();
+    return re_dir;
 }
 
 /* Destroys DIR and frees associated resources. */
@@ -250,6 +246,10 @@ bool dir_readdir(struct dir *dir, char name[NAME_MAX + 1]) {
 
     while (inode_read_at(dir->inode, &e, sizeof e, dir->pos) == sizeof e) {
         dir->pos += sizeof e;
+        if (!strcmp(e.name, ".") || !strcmp(e.name, "..")) {
+            continue;
+        }
+
         if (e.in_use) {
             strlcpy(name, e.name, NAME_MAX + 1);
             return true;

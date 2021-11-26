@@ -4,16 +4,17 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "threads/thread.h"
 #include "devices/disk.h"
 #include "filesys/directory.h"
 #include "filesys/fat.h"
 #include "filesys/file.h"
 #include "filesys/free-map.h"
 #include "filesys/inode.h"
+#include "threads/thread.h"
 
 /* The disk that contains the file system. */
 struct disk *filesys_disk;
+struct list sym_list;
 
 static void do_format(void);
 
@@ -33,6 +34,7 @@ void filesys_init(bool format) {
         do_format();
 
     fat_open();
+    list_init(&sym_list);
 #else
     /* Original FS */
     free_map_init();
@@ -62,15 +64,12 @@ void filesys_done(void) {
 bool filesys_create(const char *name, off_t initial_size) {
     disk_sector_t inode_sector = 0;
     struct thread *curr = thread_current();
-    struct dir *dir = thread_current()->current_dir == NULL ? dir_open_root() : thread_current()->current_dir;
-    
-	bool success = dir != NULL;
-	success = fat_allocate(1, &inode_sector);
-	success = success && inode_create(inode_sector, initial_size);
-	success = success && dir_add(dir, name, inode_sector);
-	// bool success = (dir != NULL && fat_allocate(1, &inode_sector) && inode_create(inode_sector, initial_size) && dir_add(dir, name, inode_sector));
+    struct dir *dir = curr->current_dir == NULL ? dir_open_root() : dir_reopen(curr->current_dir);
+
+    bool success = (dir != NULL && fat_allocate(1, &inode_sector) && inode_create(inode_sector, initial_size) && dir_add(dir, name, inode_sector));
     if (!success && inode_sector != 0)
         fat_remove_chain(inode_sector, 0);
+    inode_set_file(inode_open(inode_sector));
     dir_close(dir);
 
     return success;
@@ -83,7 +82,8 @@ bool filesys_create(const char *name, off_t initial_size) {
  * or if an internal memory allocation fails. */
 struct file *
 filesys_open(const char *name) {
-    struct dir *dir = dir_open_root();
+    struct thread *curr = thread_current();
+    struct dir *dir = curr->current_dir == NULL ? dir_open_root() : dir_reopen(curr->current_dir);
     struct inode *inode = NULL;
 
     if (dir != NULL)
@@ -98,7 +98,8 @@ filesys_open(const char *name) {
  * Fails if no file named NAME exists,
  * or if an internal memory allocation fails. */
 bool filesys_remove(const char *name) {
-    struct dir *dir = dir_open_root();
+    struct thread *curr = thread_current();
+    struct dir *dir = curr->current_dir == NULL ? dir_open_root() : dir_reopen(curr->current_dir);
     bool success = dir != NULL && dir_remove(dir, name);
     dir_close(dir);
 

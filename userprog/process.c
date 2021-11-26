@@ -42,8 +42,8 @@ static struct thread *get_child_process(tid_t pid);
 static struct exit_info *get_exit_info(tid_t tid, bool find_in_parent);
 static void remove_child_process(struct thread *cp);
 
-int process_add_file(struct file *f);
-struct file *process_get_file(int fd);
+int process_add_file(struct file_unioned *f);
+struct file_unioned *process_get_file(int fd);
 bool process_close_file(int fd);
 
 /* General process initializer for initd and other process. */
@@ -63,13 +63,13 @@ process_init(void) {
     list_push_back(&current->parent->exit_infos, &exit_info->exit_elem);
     lock_release(&exit_info_lock);
 
-    current->fd_table = (struct file **)realloc(current->fd_table, sizeof(struct file *) * 2);
+    current->fd_table = (struct file_unioned **)realloc(current->fd_table, sizeof(struct file_unioned *) * 2);
     if (current->fd_table == NULL) {
         current->exit_status = -1;
         thread_exit();
     }
-    current->fd_table[0] = (struct file *)&stdin_file;
-    current->fd_table[1] = (struct file *)&stdout_file;
+    current->fd_table[0] = (struct file_unioned *)&stdin_file;
+    current->fd_table[1] = (struct file_unioned *)&stdout_file;
 }
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -227,29 +227,46 @@ __do_fork(void *aux) {
     process_init();
 
     current->next_fd = parent->next_fd;
-    current->fd_table = (struct file **)realloc(current->fd_table, sizeof(struct file *) * current->next_fd);
+    current->fd_table = (struct file_unioned **)realloc(current->fd_table, sizeof(struct file_unioned *) * current->next_fd);
     if (current->fd_table == NULL) {
         goto error;
     }
 
     for (int i = 0; i < parent->next_fd; i++) {
-        struct file *parent_file = parent->fd_table[i];
+        struct file_unioned *parent_file = parent->fd_table[i];
         if (parent_file == NULL) {
             current->fd_table[i] = NULL;
             continue;
         }
 
-        if (parent_file == (struct file *)&stdin_file || parent_file == (struct file *)&stdout_file) {
+        if (parent_file == (struct file_unioned *)&stdin_file || parent_file == (struct file_unioned *)&stdout_file) {
             current->fd_table[i] = parent_file;
             continue;
         }
 
-        struct file *file_duplicated = file_duplicate(parent->fd_table[i]);
-        if (file_duplicated == NULL) {
-            current->next_fd = i;
-            goto error;
+        if (parent->fd_table[i]->file != NULL) {
+            struct file *file_duplicated = file_duplicate(parent->fd_table[i]->file);
+            if (file_duplicated == NULL) {
+                current->next_fd = i;
+                goto error;
+            }
+            struct file_unioned *file_unioned_dup = (struct file_unioned *)malloc(sizeof(struct file_unioned));
+            file_unioned_dup->file = file_duplicated;
+            file_unioned_dup->dir = NULL;
+            file_unioned_dup->fd = i;
+            current->fd_table[i] = file_unioned_dup;
+        } else if (parent->fd_table[i]->dir != NULL) {
+            struct dir *dir_duplicated = dir_reopen(parent->fd_table[i]->dir);
+            if (dir_duplicated == NULL) {
+                current->next_fd = i;
+                goto error;
+            }
+            struct file_unioned *file_unioned_dup = (struct file_unioned *)malloc(sizeof(struct file_unioned));
+            file_unioned_dup->file = NULL;
+            file_unioned_dup->dir = dir_duplicated;
+            file_unioned_dup->fd = i;
+            current->fd_table[i] = file_unioned_dup;
         }
-        current->fd_table[i] = file_duplicated;
     }
 
     parent->child_do_fork_success = true;
@@ -475,28 +492,31 @@ void process_activate(struct thread *next) {
     tss_update(next);
 }
 
-int process_add_file(struct file *f) {
+int process_add_file(struct file_unioned *f) {
     struct thread *curr = thread_current();
 
     for (int i = 0; i < curr->next_fd; i++) {
         if (curr->fd_table[i] == NULL) {
             curr->fd_table[i] = f;
+            f->fd = i;
             return i;
         }
     }
+
     curr->next_fd++;
     void *old_fd_table = curr->fd_table;
-    curr->fd_table = (struct file **)realloc(curr->fd_table, curr->next_fd * sizeof(struct file *));
+    curr->fd_table = (struct file_unioned **)realloc(curr->fd_table, curr->next_fd * sizeof(struct file_unioned *));
     if (curr->fd_table == NULL) {
         curr->fd_table = old_fd_table;
         curr->next_fd--;
         return -1;
     }
     curr->fd_table[curr->next_fd - 1] = f;
+    f->fd = curr->next_fd - 1;
     return curr->next_fd - 1;
 }
 
-struct file *process_get_file(int fd) {
+struct file_unioned *process_get_file(int fd) {
     if (fd < 0)
         return NULL;
 
@@ -509,14 +529,19 @@ struct file *process_get_file(int fd) {
 
 bool process_close_file(int fd) {
     struct thread *curr = thread_current();
-    struct file *f = process_get_file(fd);
-
+    struct file_unioned *f = process_get_file(fd);
     if (f == NULL) {
         return false;
     }
 
-    file_close(f);
+    if (f->file != NULL) {
+        file_close(f->file);
+    } 
+    // else if (f->dir != NULL) {
+    //     dir_close(f->dir);
+    // }
     curr->fd_table[fd] = NULL;
+    free(f);
 
     return true;
 }

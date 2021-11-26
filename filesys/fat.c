@@ -4,8 +4,8 @@
 #include <string.h>
 
 #include "devices/disk.h"
-#include "filesys/filesys.h"
 #include "filesys/directory.h"
+#include "filesys/filesys.h"
 #include "threads/malloc.h"
 #include "threads/synch.h"
 
@@ -171,10 +171,10 @@ static cluster_t find_empty() {
  * the first into *SECTORP.
  * Returns true if successful, false if all sectors were
  * available. (replacing free_map_allocate())*/
-bool fat_allocate(size_t cnt, disk_sector_t *sectorp) {    
-    if(cnt == 0)
+bool fat_allocate(size_t cnt, disk_sector_t *sectorp) {
+    if (cnt == 0)
         return true;
-    
+
     cluster_t first = fat_create_chain(0);
     if (first == 0)
         return false;
