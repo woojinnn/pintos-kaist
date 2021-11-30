@@ -176,8 +176,10 @@ bool fat_allocate(size_t cnt, disk_sector_t *sectorp) {
         return true;
 
     cluster_t first = fat_create_chain(0);
-    if (first == 0)
+    if (first == 0) {
+        fat_remove_chain(first, 0);
         return false;
+    }
 
     cluster_t clst = first;
     for (size_t i = 0; i < cnt - 1; i++) {
@@ -200,14 +202,13 @@ cluster_t
 fat_create_chain(cluster_t clst) {
     /* TODO: Your code goes here. */
     // find empty slot
+    if (clst == EOChain)
+        return 0;
+
     cluster_t empty_clst;
-    if (fat_fs->last_clst >= fat_fs->fat_length) {
-        empty_clst = find_empty();
-        if (empty_clst == 0) {
-            return 0;
-        }
-    } else {
-        empty_clst = fat_fs->last_clst++;
+    empty_clst = find_empty();
+    if (empty_clst == 0) {
+        return 0;
     }
 
     // update fat

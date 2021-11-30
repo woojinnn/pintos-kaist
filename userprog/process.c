@@ -536,7 +536,7 @@ bool process_close_file(int fd) {
 
     if (f->file != NULL) {
         file_close(f->file);
-    } 
+    }
     // else if (f->dir != NULL) {
     //     dir_close(f->dir);
     // }

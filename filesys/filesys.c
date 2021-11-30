@@ -64,13 +64,12 @@ void filesys_done(void) {
 bool filesys_create(const char *name, off_t initial_size) {
     disk_sector_t inode_sector = 0;
     struct thread *curr = thread_current();
-    struct dir *dir = curr->current_dir == NULL ? dir_open_root() : dir_reopen(curr->current_dir);
+    struct dir *dir = curr->current_dir == NULL ? dir_open_root() : curr->current_dir;
 
     bool success = (dir != NULL && fat_allocate(1, &inode_sector) && inode_create(inode_sector, initial_size) && dir_add(dir, name, inode_sector));
     if (!success && inode_sector != 0)
         fat_remove_chain(inode_sector, 0);
     inode_set_file(inode_open(inode_sector));
-    dir_close(dir);
 
     return success;
 }
@@ -83,12 +82,11 @@ bool filesys_create(const char *name, off_t initial_size) {
 struct file *
 filesys_open(const char *name) {
     struct thread *curr = thread_current();
-    struct dir *dir = curr->current_dir == NULL ? dir_open_root() : dir_reopen(curr->current_dir);
+    struct dir *dir = curr->current_dir == NULL ? dir_open_root() : curr->current_dir;
     struct inode *inode = NULL;
 
     if (dir != NULL)
         dir_lookup(dir, name, &inode);
-    dir_close(dir);
 
     return file_open(inode);
 }
@@ -99,9 +97,8 @@ filesys_open(const char *name) {
  * or if an internal memory allocation fails. */
 bool filesys_remove(const char *name) {
     struct thread *curr = thread_current();
-    struct dir *dir = curr->current_dir == NULL ? dir_open_root() : dir_reopen(curr->current_dir);
+    struct dir *dir = curr->current_dir == NULL ? dir_open_root() : curr->current_dir;
     bool success = dir != NULL && dir_remove(dir, name);
-    dir_close(dir);
 
     return success;
 }

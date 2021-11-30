@@ -17,9 +17,9 @@
 /* On-disk inode.
  * Must be exactly DISK_SECTOR_SIZE bytes long. */
 struct inode_disk {
-    disk_sector_t start;  /* First data sector. */
-    off_t length;         /* File size in bytes. */
-    unsigned magic;       /* Magic number. */
+    disk_sector_t start; /* First data sector. */
+    off_t length;        /* File size in bytes. */
+    unsigned magic;      /* Magic number. */
     bool is_dir;
     uint32_t unused[124]; /* Not used. */
 };
@@ -58,6 +58,8 @@ byte_to_sector(const struct inode *inode, off_t pos) {
     for (int i = 0; i < step; i++) {
         clst = fat_get(clst);
     }
+    if (clst == EOChain)
+        return -1;
     return cluster_to_sector(clst);
 }
 
@@ -69,20 +71,22 @@ static void grow_file(struct inode *inode, off_t pos) {
     int to_make = to - from;
 
     cluster_t tmp = sector_to_cluster(inode->data.start);
-    if(inode->data.start == 0)
+    if (inode->data.start == 0)
         tmp = 0;
 
     for (int i = 0; i < to_make; ++i) {
-        tmp = fat_create_chain(tmp);    
+        tmp = fat_create_chain(tmp);
         if (tmp == 0) {
             PANIC("grow file failed");
         }
 
-        if(inode->data.start == 0)
+        if (inode->data.start == 0)
             inode->data.start = cluster_to_sector(tmp);
-        disk_write(filesys_disk, cluster_to_sector(tmp), zeros);
+        // disk_write(filesys_disk, cluster_to_sector(tmp), zeros);/
     }
     inode->data.length = pos;
+
+    disk_write(filesys_disk, inode->sector, &inode->data);
 }
 
 /* List of open inodes, so that opening a single inode twice
@@ -122,7 +126,7 @@ bool inode_create(disk_sector_t sector, off_t length) {
                 clst = sector_to_cluster(disk_inode->start);
                 size_t i;
                 for (i = 0; i < sectors; i++) {
-                    if(clst == EOChain) 
+                    if (clst == EOChain)
                         return false;
 
                     disk_write(filesys_disk, cluster_to_sector(clst), zeros);
@@ -228,7 +232,7 @@ off_t inode_read_at(struct inode *inode, void *buffer_, off_t size, off_t offset
     while (size > 0) {
         /* Disk sector to read, starting byte offset within sector. */
         disk_sector_t sector_idx = byte_to_sector(inode, offset);
-        if(sector_idx == -1){
+        if (sector_idx == -1) {
             lock_release(&inode->inode_lock);
             return bytes_read;
         }

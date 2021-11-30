@@ -26,6 +26,7 @@
         "syscall-nr.h": "c",
         "mmu.h": "c",
         "inode.h": "c",
-        "disk.h": "c"
+        "disk.h": "c",
+        "fat.h": "c"
     }
 }
