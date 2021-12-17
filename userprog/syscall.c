@@ -42,6 +42,8 @@ static bool sys_readdir(int fd, char *name);
 static bool sys_isdir(int fd);
 static int sys_inumber(int fd);
 static int sys_symlink(const char *target, const char *linkpath);
+static int sys_mount (const char *path, int chan_no, int dev_no);
+static int sys_umount (const char *path);
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
@@ -257,6 +259,14 @@ void syscall_handler(struct intr_frame *f) {
             /* Returns the inode number for a fd. */
         case SYS_SYMLINK:
             SET_RAX(f, sys_symlink((const char *)args[0], (const char *)args[1]));
+            break;
+
+        case SYS_MOUNT:
+            SET_RAX(f, sys_mount((const char *)args[0], (int)args[1], (int)args[2]));
+            break;
+
+        case SYS_UMOUNT:
+            SET_RAX(f, sys_umount((const char *)args[0]));
             break;
 
         default:
@@ -524,7 +534,7 @@ int sys_read(int fd, void *buffer, unsigned size) {
     struct thread *curr = thread_current();
     validate_buffer(buffer, size, true);
     lock_acquire(&filesys_lock);
-    
+
     int read;
 
     void *f = process_get_file(fd);
@@ -921,5 +931,15 @@ int sys_symlink(const char *target, const char *linkpath) {
     }
 
     dir_add(link_target_dir, link_name, inode_get_inumber(target_inode));
+    return 0;
+}
+
+static int sys_mount (const char *path, int chan_no, int dev_no) {
+    struct disk *mdisk = disk_get(chan_no, dev_no);
+    
+    return 0;
+}
+
+static int sys_umount (const char *path) {
     return 0;
 }
